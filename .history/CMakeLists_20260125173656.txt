@@ -1,0 +1,37 @@
+cmake_minimum_required(VERSION 3.10)
+set(VCPKG_TARGET_TRIPLET "x64-windows-static" CACHE STRING "")
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "")
+set(CMAKE_CXX_STANDARD 17)
+
+
+project(btc_tracker)
+
+
+
+# 静的リンクを強制する設定
+set(VCPKG_TARGET_TRIPLET x64-windows-static)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+set(CMAKE_PREFIX_PATH "C:/dev/vcpkg/installed/x64-windows-static")
+
+find_package(OpenSSL REQUIRED)
+find_package(fmt CONFIG REQUIRED)
+find_package(httplib CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+
+add_executable(btc_tracker main.cpp)
+
+# 静的リンクの場合、依存するWindows標準ライブラリを明示的に全部書く必要があります
+target_link_libraries(btc_tracker PRIVATE
+    fmt::fmt
+    httplib::httplib
+    nlohmann_json::nlohmann_json
+    OpenSSL::SSL 
+    OpenSSL::Crypto 
+    ws2_32
+    crypt32
+    advapi32
+    user32
+    shell32
+    gdi32
+)

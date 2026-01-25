@@ -1,0 +1,33 @@
+Fetching registry information from https://github.com/microsoft/vcpkg (HEAD)...
+Detecting compiler hash for triplet x64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/cl.exe
+Detecting compiler hash for triplet x64-windows-static...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/cl.exe
+The following packages will be built and installed:
+    fmt:x64-windows-static@12.1.0 -- git+https://github.com/microsoft/vcpkg@936231a2c765082457d348a8781ea9d3610eb331
+  * vcpkg-cmake:x64-windows@2024-04-23 -- git+https://github.com/microsoft/vcpkg@e74aa1e8f93278a8e71372f1fa08c3df420eb840
+  * vcpkg-cmake-config:x64-windows@2024-05-23 -- git+https://github.com/microsoft/vcpkg@97a63e4bc1a17422ffe4eff71da53b4b561a7841
+Additional packages (*) will be modified to complete this operation.
+Restored 3 package(s) from C:\Users\Michihiko Kubota\AppData\Local\vcpkg\archives in 101 ms. Use --debug to see more details.
+Installing 1/3 vcpkg-cmake-config:x64-windows@2024-05-23...
+Elapsed time to handle vcpkg-cmake-config:x64-windows: 6.8 ms
+vcpkg-cmake-config:x64-windows package ABI: 89e19a2ea7c74764d5b1cf2d96f4670d51d886c48872c7e6c877c925cfb54e95
+Installing 2/3 vcpkg-cmake:x64-windows@2024-04-23...
+Elapsed time to handle vcpkg-cmake:x64-windows: 8.28 ms
+vcpkg-cmake:x64-windows package ABI: c9d174d0f7f94327c0c3fb4a20193a1702281bc6b1eeb515ffa79b5401ddf1ee
+Installing 3/3 fmt:x64-windows-static@12.1.0...
+Elapsed time to handle fmt:x64-windows-static: 31 ms
+fmt:x64-windows-static package ABI: 75dec6dbb08021e32b7098914d6a035510edf1ce0e65c75fde86e6ea4b4935d1
+Installed contents are licensed to you by owners. Microsoft is not responsible for, nor does it grant any licenses to, third-party packages.
+Packages installed in this vcpkg installation declare the following licenses:
+MIT
+The package fmt provides CMake targets:
+
+    find_package(fmt CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE fmt::fmt)
+
+    # Or use the header-only version
+    find_package(fmt CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE fmt::fmt-header-only)
+
+All requested installations completed successfully in: 48.3 ms

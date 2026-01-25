@@ -1,0 +1,23 @@
+cmake_minimum_required(VERSION 3.10)
+project(btc_tracker)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_PREFIX_PATH "C:/dev/vcpkg/installed/x64-windows")
+
+# OpenSSLを探す設定を追加
+find_package(OpenSSL REQUIRED)
+find_package(fmt CONFIG REQUIRED)
+find_package(httplib CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+
+add_executable(btc_tracker main.cpp)
+
+target_link_libraries(btc_tracker PRIVATE
+    fmt::fmt
+    httplib::httplib 
+    nlohmann_json::nlohmann_json
+    OpenSSL::SSL        # 追加
+    OpenSSL::Crypto     # 追加
+    ws2_32
+    crypt32
+)

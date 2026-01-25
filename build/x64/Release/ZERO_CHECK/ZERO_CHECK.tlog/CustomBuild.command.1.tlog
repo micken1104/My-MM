@@ -1,0 +1,10 @@
+^C:\USERS\MICHIHIKO KUBOTA\DOCUMENTS\MM\MY-MM\BUILD\CMAKEFILES\AE22727110B5D9C33096F7689E944153\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Users/Michihiko Kubota/Documents/MM/My-MM" "-BC:/Users/Michihiko Kubota/Documents/MM/My-MM/build" --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file "C:/Users/Michihiko Kubota/Documents/MM/My-MM/build/My-MM.slnx"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
