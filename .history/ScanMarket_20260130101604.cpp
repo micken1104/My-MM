@@ -1,0 +1,43 @@
+#include <fstream>
+#include <iomanip>
+
+// 1分後の結果を待つためのデータ構造
+struct TradeData {
+    std::string symbol;
+    double entry_price;
+    double entry_imbalance;
+    double entry_diff;
+    double entry_volume;
+    std::chrono::steady_clock::time_point entry_time;
+};
+
+std::vector<TradeData> pending_checks;
+
+void save_to_csv(const TradeData& data, double exit_price) {
+    std::ofstream file("market_data.csv", std::ios::app); // 追記モード
+    double price_change = (exit_price - data.entry_price) / data.entry_price * 100.0;
+    
+    // CSVのヘッダー：Symbol, Imb, Diff, Volume, PriceChange%
+    file << data.symbol << ","
+         << data.entry_imbalance << ","
+         << data.entry_diff << ","
+         << data.entry_volume << ","
+         << price_change << "\n";
+}
+
+// scan_market関数の中で呼び出す
+void check_pending_trades(const std::map<std::string, double>& current_prices) {
+    auto now = std::chrono::steady_clock::now();
+    for (auto it = pending_checks.begin(); it != pending_checks.end(); ) {
+        // 60秒経過したかチェック
+        if (now - it->entry_time >= std::chrono::seconds(60)) {
+            if (current_prices.count(it->symbol)) {
+                save_to_csv(*it, current_prices.at(it->symbol));
+                fmt::print(fg(fmt::color::magenta), "📊 [DATA SAVED] {}\n", it->symbol);
+            }
+            it = pending_checks.erase(it); // リストから削除
+        } else {
+            ++it;
+        }
+    }
+}

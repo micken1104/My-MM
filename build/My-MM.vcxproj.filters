@@ -4,7 +4,13 @@
     <ClCompile Include="C:\Users\Michihiko Kubota\Documents\MM\My-MM\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\Michihiko Kubota\Documents\MM\My-MM\OrderBook.cpp">
+    <ClCompile Include="C:\Users\Michihiko Kubota\Documents\MM\My-MM\ScanMarket.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Michihiko Kubota\Documents\MM\My-MM\SOMEvaluator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Michihiko Kubota\Documents\MM\My-MM\ExecuteTrade.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

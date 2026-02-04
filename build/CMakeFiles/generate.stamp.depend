@@ -7,7 +7,6 @@ C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeCXXCompilerABI.cpp
 C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeCXXInformation.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeCommonLanguageInclude.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeCompilerIdDetection.cmake
-C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeDependentOption.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCCompiler.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeDetermineCompiler.cmake
@@ -33,9 +32,6 @@ C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeTestCCompiler.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeTestCXXCompiler.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeTestCompilerCommon.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeTestRCCompiler.cmake
-C:/Program Files/CMake/share/cmake-4.2/Modules/CheckCSourceCompiles.cmake
-C:/Program Files/CMake/share/cmake-4.2/Modules/CheckIncludeFile.cmake
-C:/Program Files/CMake/share/cmake-4.2/Modules/CheckLibraryExists.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/Compiler/ADSP-DetermineCompiler.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/Compiler/ARMCC-DetermineCompiler.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/Compiler/ARMClang-DetermineCompiler.cmake
@@ -99,14 +95,13 @@ C:/Program Files/CMake/share/cmake-4.2/Modules/CompilerId/VS-10.vcxproj.in
 C:/Program Files/CMake/share/cmake-4.2/Modules/FindOpenSSL.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/FindPackageHandleStandardArgs.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/FindPackageMessage.cmake
-C:/Program Files/CMake/share/cmake-4.2/Modules/FindThreads.cmake
+C:/Program Files/CMake/share/cmake-4.2/Modules/FindZLIB.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/Internal/CMakeCLinkerInformation.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/Internal/CMakeCXXLinkerInformation.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/Internal/CMakeCommonLinkerInformation.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/Internal/CMakeDetermineLinkerId.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/Internal/CMakeInspectCLinker.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/Internal/CMakeInspectCXXLinker.cmake
-C:/Program Files/CMake/share/cmake-4.2/Modules/Internal/CheckSourceCompiles.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/Internal/FeatureTesting.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/Linker/MSVC-C.cmake
 C:/Program Files/CMake/share/cmake-4.2/Modules/Linker/MSVC-CXX.cmake
@@ -127,20 +122,15 @@ C:/Users/Michihiko Kubota/Documents/MM/My-MM/build/CMakeFiles/4.2.2/CMakeCCompil
 C:/Users/Michihiko Kubota/Documents/MM/My-MM/build/CMakeFiles/4.2.2/CMakeCXXCompiler.cmake
 C:/Users/Michihiko Kubota/Documents/MM/My-MM/build/CMakeFiles/4.2.2/CMakeRCCompiler.cmake
 C:/Users/Michihiko Kubota/Documents/MM/My-MM/build/CMakeFiles/4.2.2/CMakeSystem.cmake
-C:/Users/Michihiko Kubota/Documents/MM/My-MM/vcpkg-configuration.json
-C:/Users/Michihiko Kubota/Documents/MM/My-MM/vcpkg.json
 C:/dev/vcpkg/installed/x64-windows-static/share/fmt/fmt-config-version.cmake
 C:/dev/vcpkg/installed/x64-windows-static/share/fmt/fmt-config.cmake
 C:/dev/vcpkg/installed/x64-windows-static/share/fmt/fmt-targets-debug.cmake
 C:/dev/vcpkg/installed/x64-windows-static/share/fmt/fmt-targets-release.cmake
 C:/dev/vcpkg/installed/x64-windows-static/share/fmt/fmt-targets.cmake
-C:/dev/vcpkg/installed/x64-windows-static/share/httplib/httplibConfig.cmake
-C:/dev/vcpkg/installed/x64-windows-static/share/httplib/httplibConfigVersion.cmake
-C:/dev/vcpkg/installed/x64-windows-static/share/httplib/httplibTargets.cmake
+C:/dev/vcpkg/installed/x64-windows-static/share/ixwebsocket/ixwebsocket-config.cmake
+C:/dev/vcpkg/installed/x64-windows-static/share/ixwebsocket/ixwebsocket-targets-debug.cmake
+C:/dev/vcpkg/installed/x64-windows-static/share/ixwebsocket/ixwebsocket-targets-release.cmake
+C:/dev/vcpkg/installed/x64-windows-static/share/ixwebsocket/ixwebsocket-targets.cmake
 C:/dev/vcpkg/installed/x64-windows-static/share/nlohmann_json/nlohmann_jsonConfig.cmake
 C:/dev/vcpkg/installed/x64-windows-static/share/nlohmann_json/nlohmann_jsonConfigVersion.cmake
 C:/dev/vcpkg/installed/x64-windows-static/share/nlohmann_json/nlohmann_jsonTargets.cmake
-C:/dev/vcpkg/installed/x64-windows-static/share/unofficial-brotli/unofficial-brotli-config-debug.cmake
-C:/dev/vcpkg/installed/x64-windows-static/share/unofficial-brotli/unofficial-brotli-config-release.cmake
-C:/dev/vcpkg/installed/x64-windows-static/share/unofficial-brotli/unofficial-brotli-config.cmake
-C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake
