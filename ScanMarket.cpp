@@ -12,6 +12,14 @@ using json = nlohmann::json;
 static double real_balance = 10000.0; // 真実の残高
 static double total_net_profit = 0.0; // 増え方の累計
 
+// 監視対象の銘柄リストを定義
+std::vector<std::string> targets = {"ATOMUSDT", "ETHUSDT", "SOLUSDT", "BTCUSDT"};
+// 銘柄ごとの設定値を定義
+std::map<std::string, TradingConstraints> symbol_settings = {
+    {"ATOMUSDT", {0.0025, -0.0008, 60, 0.02}},
+    {"ETHUSDT",  {0.0035, -0.0010, 90, 0.03}},
+    {"SOLUSDT",  {0.0050, -0.0015, 45, 0.05}}
+};
 
 void process_ws_data(const nlohmann::json& j, std::map<std::string, MarketState>& history, std::vector<TradeData>& pending_checks) {
     static std::map<std::string, std::chrono::steady_clock::time_point> last_save_times;
@@ -50,7 +58,8 @@ void process_ws_data(const nlohmann::json& j, std::map<std::string, MarketState>
 }
 
 void save_to_csv(const TradeData& data, double exit_price) {
-    std::string filename = "market_data.csv";
+    // 銘柄ごとにファイル名を分ける
+    std::string filename = "data/" + data.symbol + "_market_data.csv";
     
     // ファイルが空（新しく作られる）場合、ヘッダーを書き込む
     std::ifstream check_file(filename);
@@ -92,134 +101,31 @@ void check_pending_trades(const std::map<std::string, double>& current_prices, s
         }
     }
 }
-
-void update_real_pnl(const std::map<std::string, double>& current_prices, std::vector<TradeData>& pending_trades) {
-    auto now = std::chrono::steady_clock::now();
+void update_real_pnl(const std::map<std::string, double>& current_prices, 
+                     std::vector<TradeData>& pending_trades,
+                     const std::map<std::string, TradingConstraints>& settings) {
     
+    auto now = std::chrono::steady_clock::now();
     for (auto it = pending_trades.begin(); it != pending_trades.end(); ) {
-        if (current_prices.count(it->symbol)) {
-            double current_price = current_prices.at(it->symbol);
-            
-            // DEFECT FIX: Simulate Spread Cost (approx 0.02% penalty on exit)
-            // If Long, we sell at Bid (lower). If Short, we buy at Ask (higher).
-            double exit_price_sim = (it->side == "LONG") ? current_price * 0.9998 : current_price * 1.0002;
+        if (!current_prices.count(it->symbol)) { ++it; continue; }
+        
+        // その銘柄の設定を取得（なければデフォルト値を使用）
+        TradingConstraints config = settings.count(it->symbol) ? settings.at(it->symbol) : settings.at("ATOMUSDT");
 
-            // 損益率（%）の計算
-            double change = (current_price - it->entry_price) / it->entry_price;
-            double change = (exit_price_sim - it->entry_price) / it->entry_price;
-            double pnl_ratio = (it->side == "LONG") ? change : -change;
+        double current_price = current_prices.at(it->symbol);
+        double change = (current_price - it->entry_price) / it->entry_price;
+        double pnl_ratio = (it->side == "LONG") ? change : -change;
 
+        bool should_close = false;
+        if (pnl_ratio >= config.tp_rate) should_close = true;        // 銘柄別TP
+        else if (pnl_ratio <= config.sl_rate) should_close = true;  // 銘柄別SL
+        else if (std::chrono::duration_cast<std::chrono::seconds>(now - it->entry_time).count() >= config.max_hold_sec) should_close = true; // 銘柄別タイムアウト
 
-            // --- ★動的利確ロジックの追加 ---
-            // 板情報からスプレッド率を算出 (スプレッドが 0.02% なら 0.0002)
-            // historyに記録されている最新の mid_price と imbalance 等から逆算するか、
-            // ws_dataから直接 spread を保持するように拡張するのがベストです。
-            
-            // --- 利確・損切しきい値の設定 ---
-            // ATOMはボラが低いので 0.06% で利確、他は 0.1%
-            double tp_threshold = (it->symbol == "ATOMUSDT") ? 0.0006 : 0.0010;
-            // DEFECT FIX: Increased TP to cover fees (0.15% roundtrip)
-            double tp_threshold = (it->symbol == "ATOMUSDT") ? 0.0025 : 0.0030; // 0.25% target
-            double sl_threshold = -0.0008; // 損切は共通で -0.08%
-
-            // 決済
-            bool should_close = false;
-            std::string reason = "";
-
-            // 1. 利確判定
-            if (pnl_ratio >= tp_threshold) {
-                should_close = true;
-                reason = (it->symbol == "ATOMUSDT") ? "DYNAMIC_TP" : "TAKE_PROFIT";
-            }
-            // 2. 損切判定
-            else if (pnl_ratio <= sl_threshold) {
-                should_close = true;
-                reason = "STOP_LOSS";
-            }
-            // 3. タイムアウト (60秒)
-            else if (std::chrono::duration_cast<std::chrono::seconds>(now - it->entry_time).count() >= 60) {
-                should_close = true;
-                reason = "TIME_OUT";
-            }
-
-            if (should_close) {
-                // 手数料(往復0.05%)を差し引いた実損益
-                double net_pnl = (it->lot_size * pnl_ratio) - (it->lot_size * 0.0005);
-
-                real_balance += net_pnl;
-                total_net_profit += net_pnl;
-
-                auto color = (net_pnl >= 0) ? fmt::color::green_yellow : fmt::color::orange_red;
-                fmt::print(fg(color), 
-                    "🏁 [RESULT] {:<8} | {:<11} | PnL: ${:+.2f} | Balance: ${:.2f} (Total: ${:+.2f})\n",
-                    it->symbol, reason, net_pnl, real_balance, total_net_profit);
-
-                it = pending_trades.erase(it);
-                continue;
-            }
+        if (should_close) {
+            // ... 決済処理 ...
+            it = pending_trades.erase(it);
+        } else {
+            ++it;
         }
-        ++it;
     }
 }
-
-
-void scan_market(std::map<std::string, MarketState>& history, std::vector<TradeData>& pending_checks) {
-    httplib::Client cli("http://api.binance.com");
-    cli.set_follow_location(true);
-    // タイムアウト設定を追加（これでフリーズを防ぐ）
-    cli.set_connection_timeout(5); 
-    cli.set_read_timeout(5);
-    auto res = cli.Get("/api/v3/ticker/bookTicker");
-
-    if (res && res->status == 200) {
-        json data = json::parse(res->body);
-        auto now = std::chrono::steady_clock::now();
-        std::vector<std::string> targets = {"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"};
-        std::map<std::string, double> current_prices;
-
-        for (auto& symbol_data : data) {
-            std::string symbol = symbol_data["symbol"];
-            if (std::find(targets.begin(), targets.end(), symbol) == targets.end()) continue;
-
-            double bid_p = std::stod(symbol_data["bidPrice"].get<std::string>());
-            double ask_p = std::stod(symbol_data["askPrice"].get<std::string>());
-            double mid_p = (bid_p + ask_p) / 2.0;
-            current_prices[symbol] = mid_p;
-
-            // インバランス計算
-            double bid_vol = std::stod(symbol_data["bidQty"].get<std::string>());
-            double ask_vol = std::stod(symbol_data["askQty"].get<std::string>());
-            if (bid_vol + ask_vol == 0) continue;
-
-            double current_imbalance = (bid_vol - ask_vol) / (bid_vol + ask_vol);
-            double diff = current_imbalance - history[symbol].imbalance;
-            double vol = 0.0; // 現在のコードでは 0.0 固定
-
-            TradeData data_node;
-            data_node.symbol = symbol;
-            data_node.entry_price = mid_p;
-            data_node.entry_imbalance = current_imbalance;
-            data_node.entry_diff = diff;
-            data_node.entry_volume = 0.0;
-            data_node.entry_time = now;
-            data_node.entry_timestamp = std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-
-            pending_checks.push_back(data_node);
-            
-            history[symbol].imbalance = current_imbalance;
-            history[symbol].diff = diff;
-            history[symbol].volume = vol;
-            history[symbol].timestamp = now;
-        }
-        check_pending_trades(current_prices, pending_checks);
-    } else if (!res) {
-        auto err = res.error();
-        fmt::print(fg(fmt::color::red), "❌ Connection Error: {}\n", (int)err);
-        return; // ここで安全に抜ける
-    } else if (res->status != 200) {
-        fmt::print(fg(fmt::color::yellow), "⚠️ API Status Error: {}\n", res->status);
-        return;
-    }
-}
-

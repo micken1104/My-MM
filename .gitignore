@@ -1,0 +1,24 @@
+# データの除外
+data/
+*.csv
+
+# 学習済みモデルの除外
+models/
+*.bin
+
+# C++ ビルド生成物の除外
+build/
+bin/
+*.exe
+*.o
+*.obj
+*.out
+
+# Python キャッシュの除外
+__pycache__/
+*.pyc
+
+# IDE（VSCode等）の設定ファイル
+.vscode/
+.idea/
+.history/
