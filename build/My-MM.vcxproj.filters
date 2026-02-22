@@ -1,28 +1,28 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="C:\Users\Michihiko Kubota\Documents\MM\My-MM\main.cpp">
+    <ClCompile Include="C:\Users\MichihikoKubota\Documents\My-MM\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\Michihiko Kubota\Documents\MM\My-MM\ScanMarket.cpp">
+    <ClCompile Include="C:\Users\MichihikoKubota\Documents\My-MM\ScanMarket.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\Michihiko Kubota\Documents\MM\My-MM\SOMEvaluator.cpp">
+    <ClCompile Include="C:\Users\MichihikoKubota\Documents\My-MM\SOMEvaluator.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\Michihiko Kubota\Documents\MM\My-MM\ExecuteTrade.cpp">
+    <ClCompile Include="C:\Users\MichihikoKubota\Documents\My-MM\ExecuteTrade.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="C:\Users\Michihiko Kubota\Documents\MM\My-MM\CMakeLists.txt" />
+    <CustomBuild Include="C:\Users\MichihikoKubota\Documents\My-MM\CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
-    <Natvis Include="C:\dev\vcpkg\installed\x64-windows-static\share\nlohmann_json\nlohmann_json.natvis" />
+    <Natvis Include="C:\Users\MichihikoKubota\Documents\My-MM\build\vcpkg_installed\x64-windows-static\share\nlohmann_json\nlohmann_json.natvis" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Source Files">
-      <UniqueIdentifier>{E0D24C9B-3EEA-37BD-97BC-4C60D5C70217}</UniqueIdentifier>
+      <UniqueIdentifier>{97FE1AED-D598-3B3A-83D1-BBA2977AF7DD}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

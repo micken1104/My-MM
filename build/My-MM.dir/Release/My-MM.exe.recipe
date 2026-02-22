@@ -2,10 +2,10 @@
 <Project>
   <ProjectOutputs>
     <ProjectOutput>
-      <FullPath>C:\Users\Michihiko Kubota\Documents\MM\My-MM\build\x64\Release\ZERO_CHECK</FullPath>
+      <FullPath>C:\Users\MichihikoKubota\Documents\My-MM\build\x64\Release\ZERO_CHECK</FullPath>
     </ProjectOutput>
     <ProjectOutput>
-      <FullPath>C:\Users\Michihiko Kubota\Documents\MM\My-MM\build\Release\My-MM.exe</FullPath>
+      <FullPath>C:\Users\MichihikoKubota\Documents\My-MM\build\Release\My-MM.exe</FullPath>
     </ProjectOutput>
   </ProjectOutputs>
   <ContentFiles />

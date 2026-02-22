@@ -1,5 +1,8 @@
 {
   "dependencies": [
-    "fmt"
+    "fmt",
+    "nlohmann-json",
+    "openssl",
+    "ixwebsocket"
   ]
 }

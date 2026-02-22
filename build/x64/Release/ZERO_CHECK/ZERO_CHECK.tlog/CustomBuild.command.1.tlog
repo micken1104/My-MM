@@ -1,6 +1,6 @@
-^C:\USERS\MICHIHIKO KUBOTA\DOCUMENTS\MM\MY-MM\BUILD\CMAKEFILES\AE22727110B5D9C33096F7689E944153\GENERATE.STAMP.RULE
+^C:\USERS\MICHIHIKOKUBOTA\DOCUMENTS\MY-MM\BUILD\CMAKEFILES\D823D52A4DE248A88EEA67A74F236D12\GENERATE.STAMP.RULE
 setlocal
-"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Users/Michihiko Kubota/Documents/MM/My-MM" "-BC:/Users/Michihiko Kubota/Documents/MM/My-MM/build" --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file "C:/Users/Michihiko Kubota/Documents/MM/My-MM/build/My-MM.slnx"
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/MichihikoKubota/Documents/My-MM -BC:/Users/MichihikoKubota/Documents/My-MM/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/MichihikoKubota/Documents/My-MM/build/My-MM.slnx
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone

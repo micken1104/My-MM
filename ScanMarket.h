@@ -5,7 +5,8 @@
 #include <string>
 #include <vector>
 #include <nlohmann/json.hpp>
-#include "ExecuteTrade.h" // これをインクルードして構造体を利用する
+#include <chrono>
+#include "ExecuteTrade.h"
 
 struct MarketState {
     double last_price = 0;
@@ -14,12 +15,11 @@ struct MarketState {
     double volume = 0;
 };
 
-// 他のファイル(main.cpp)から見えるように extern 宣言を追加
-extern std::vector<std::string> targets; 
-extern std::map<std::string, TradingConstraints> symbol_settings;
+// 板情報をCSVに保存（Python学習用）
+void save_market_data_to_csv(const std::string& symbol, double imbalance, double imbalance_change);
 
-void process_ws_data(const nlohmann::json& j, std::map<std::string, MarketState>& history, std::vector<TradeData>& pending_checks);
-void update_real_pnl(const std::map<std::string, double>& current_prices, std::vector<TradeData>& pending_trades, const std::map<std::string, TradingConstraints>& settings);
-void check_pending_trades(const std::map<std::string, double>& current_prices, std::vector<TradeData>& pending_checks);
+// 板情報を処理（マーケット状態更新・CSV保存）
+void process_ws_data(const std::string& symbol, double imbalance, double imbalance_change,
+                     std::map<std::string, MarketState>& market_state);
 
 #endif

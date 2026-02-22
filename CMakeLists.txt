@@ -8,9 +8,6 @@ project(My-MM)
 set(CMAKE_CXX_STANDARD 17)
 
 
-set(CMAKE_PREFIX_PATH "C:/dev/vcpkg/installed/x64-windows-static")
-
-
 #set(OPENSSL_ROOT_DIR "C:/dev/vcpkg/installed/x64-windows-static")
 #set(OPENSSL_USE_STATIC_LIBS TRUE)
 
