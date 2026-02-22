@@ -52,15 +52,18 @@ bool SOMEvaluator::loadModel(const std::string& weights_csv,
     std::getline(pf, line); // ヘッダーをスキップ
     while (std::getline(pf, line)) {
         std::stringstream ss(line);
-        std::string min_val, max_val;
-        if (std::getline(ss, min_val, ',') && std::getline(ss, max_val, ',')) {
+        std::string feature_name, min_val, max_val;
+        // フォーマット: feature_name,min,max
+        if (std::getline(ss, feature_name, ',') && 
+            std::getline(ss, min_val, ',') && 
+            std::getline(ss, max_val, ',')) {
             mins.push_back(std::stod(min_val));
             maxs.push_back(std::stod(max_val));
         }
     }
 
-    // バリデーション
-    if (map_weights.size() != 400 || expectancy_map.size() != 400 || mins.size() != 6) {
+    // バリデーション (4つの特徴量: imbalance, imbalance_change, btc_imbalance, btc_imbalance_change)
+    if (map_weights.size() != 400 || expectancy_map.size() != 400 || mins.size() != 4) {
         return false;
     }
     return true; 

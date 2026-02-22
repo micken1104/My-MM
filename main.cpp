@@ -121,17 +121,16 @@ int main() {
                     
                     if (prices.count(symbol) && prices.count(btc_symbol)) {
                         double symbol_imbalance = market_state[symbol].imbalance;
-                        double symbol_diff = market_state[symbol].diff;
+                        double symbol_imbalance_change = market_state[symbol].diff;  // diff = imbalance_change
                         double btc_imbalance = market_state[btc_symbol].imbalance;
-                        double btc_diff = market_state[btc_symbol].diff;
+                        double btc_imbalance_change = market_state[btc_symbol].diff;  // diff = imbalance_change
                         
+                        // 新しいフォーマット: 4つの特徴量
                         std::vector<double> features = {
                             symbol_imbalance,
-                            symbol_diff,
-                            0.0,
+                            symbol_imbalance_change,
                             btc_imbalance,
-                            btc_diff,
-                            0.0
+                            btc_imbalance_change
                         };
                         
                         SOMResult result = som_models[symbol].getPrediction(features);
@@ -145,7 +144,6 @@ int main() {
     });
     
     webSocket.start();
-    std::cout << "Running..." << std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(5));
     
     // メインループ
@@ -164,8 +162,6 @@ int main() {
                 if (elapsed >= 60) {
                     double exit_price = prices[it->symbol];
                     double pnl_pct = (exit_price - it->entry_price) / it->entry_price * 100.0;
-                    
-                    std::cout << "SELL " << it->symbol << " at " << exit_price << " pnl=" << pnl_pct << "%" << std::endl;
                     
                     // CSV保存
                     std::string filename = "data/" + it->symbol + "_trades.csv";
