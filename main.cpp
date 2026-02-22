@@ -67,7 +67,6 @@ int main() {
             
             for (const auto& symbol : symbols) {
                 std::string cmd = "C:\\Users\\MichihikoKubota\\Documents\\My-MM\\.venv\\Scripts\\python.exe train_som.py " + symbol;
-                std::cout << "Training " << symbol << std::endl;
                 std::system(cmd.c_str());
             }
         }
@@ -87,43 +86,16 @@ int main() {
         }
     }
     
-    std::cout << "Connecting: " << url << std::endl;
     webSocket.setUrl(url);
     
     // WebSocket メッセージ受信
     webSocket.setOnMessageCallback([&](const ix::WebSocketMessagePtr& msg) {
-        static int msg_count = 0;
-        msg_count++;
-        
-        if (msg_count <= 5 || msg_count % 100 == 0) {
-            std::cout << "Message #" << msg_count << " Type: " << (int)msg->type << std::endl;
-        }
-        if (msg->type == ix::WebSocketMessageType::Error) {
-            std::cout << "Error: " << msg->errorInfo.reason << std::endl;
-            std::cout << "HTTP Status: " << msg->errorInfo.http_status << std::endl;
-        }
         if (msg->type == ix::WebSocketMessageType::Message) {
             try {
-                std::string msg_str = msg->str;
-                if (msg_count <= 2) {
-                    std::cout << "Raw message (first 200 chars): " << msg_str.substr(0, 200) << std::endl;
-                }
-                
-                auto root = json::parse(msg_str);
+                auto root = json::parse(msg->str);
                 auto data = root.count("data") ? root["data"] : root;
                 
-                if (msg_count <= 2) {
-                    std::cout << "Parsed JSON keys: ";
-                    for (auto& [key, val] : root.items()) {
-                        std::cout << key << " ";
-                    }
-                    std::cout << std::endl;
-                }
-                
                 if (!data.contains("s")) {
-                    if (msg_count <= 2) {
-                        std::cout << "WARNING: No 's' field in data" << std::endl;
-                    }
                     return;
                 }
                 
@@ -144,12 +116,9 @@ int main() {
                     double previous_imbalance = market_state[symbol].imbalance;
                     double imbalance_change = imbalance - previous_imbalance;
                     
-                    // Python学習用のデータを保存
                     process_ws_data(symbol, imbalance, imbalance_change, market_state);
-                    
                     market_state[symbol].last_price = mid_price;
                     
-                    // SOM評価
                     if (prices.count(symbol) && prices.count(btc_symbol)) {
                         double symbol_imbalance = market_state[symbol].imbalance;
                         double symbol_diff = market_state[symbol].diff;
@@ -166,18 +135,12 @@ int main() {
                         };
                         
                         SOMResult result = som_models[symbol].getPrediction(features);
-                        
-                        // トレード実行判定をexecute_tradeに委譲
                         execute_trade(result.expectancy, mid_price, symbol, active_trades, symbol_imbalance);
                     }
                 }
             } catch (const std::exception& e) {
-                std::cerr << "Parse error at message #" << msg_count << ": " << e.what() << std::endl;
-            } catch (...) {
-                std::cerr << "Unknown error at message #" << msg_count << std::endl;
+                // Error handling silently
             }
-        } else {
-            std::cout << "Non-Message type received: " << (int)msg->type << std::endl;
         }
     });
     
@@ -187,22 +150,13 @@ int main() {
     
     // メインループ
     while (true) {
-        static int loop_count = 0;
-        loop_count++;
-        
         std::this_thread::sleep_for(std::chrono::seconds(1));
         
         {
             std::lock_guard<std::mutex> lock(price_mutex);
             
-            if (loop_count % 10 == 0) {
-                std::cout << "Loop #" << loop_count << " - prices=" << prices.size() 
-                          << " trades=" << active_trades.size() << std::endl;
-            }
-            
             auto now = std::chrono::steady_clock::now();
             
-            // トレード管理
             for (auto it = active_trades.begin(); it != active_trades.end(); ) {
                 auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - it->entry_time).count();
                 

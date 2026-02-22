@@ -12,20 +12,16 @@ void save_market_data_to_csv(const std::string& symbol, double imbalance, double
     std::ofstream file(filename, std::ios::app);
     
     if (!file.is_open()) {
-        std::cerr << "Failed to open " << filename << std::endl;
         return;
     }
     
-    // ヘッダーを書き込み（最初だけ）
     if (!file_exists) {
         file << "timestamp,symbol,imbalance,imbalance_change\n";
     }
     
-    // 現在のUNIXタイムスタンプ
     long long timestamp = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     
-    // データを書き込み
     file << timestamp << ","
          << symbol << ","
          << std::fixed << std::setprecision(6) << imbalance << ","
@@ -33,7 +29,6 @@ void save_market_data_to_csv(const std::string& symbol, double imbalance, double
     
     file.flush();
     file.close();
-    std::cout << "Saved " << symbol << std::endl;
 }
 
 // 板情報を処理（30秒に1回CSVに保存）
