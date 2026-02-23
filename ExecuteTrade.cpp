@@ -3,14 +3,22 @@
 #include <iostream>
 #include <map>
 #include <iomanip>
+#include <chrono>
 
-// グローバル変数
 static double total_pnl_pct = 0.0; // 通算損益（％）
 static int win_count = 0;
 static int loss_count = 0;
+std::map<std::string, std::chrono::steady_clock::time_point> last_exit_times;
 
 void execute_trade(double expectancy, double current_price, std::string symbol, 
                    std::vector<TradeData>& pending_trades, double local_risk) {
+    // クールダウンチェック（決済から30秒間はエントリー禁止）
+    auto now = std::chrono::steady_clock::now();
+    if (last_exit_times.count(symbol)) {
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_exit_times[symbol]).count();
+        if (elapsed < 30) return; // 30秒以内ならスキップ
+    }
+    
     // 期待値が高い場合のみトレード
     if (expectancy <= 0.20) {
         return;
@@ -95,6 +103,7 @@ void check_and_close_trades(std::vector<TradeData>& active_trades,
                 all_file.close();
             }
 
+            last_exit_times[it->symbol] = std::chrono::steady_clock::now(); // 決済時刻を記録
             it = active_trades.erase(it); // ポジション削除
         } else {
             ++it;

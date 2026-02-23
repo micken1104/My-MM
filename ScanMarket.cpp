@@ -36,7 +36,7 @@ void save_market_data_to_csv(const std::string& symbol, double imbalance, double
     //std::cout << "Saved " << symbol << std::endl;
 }
 
-// 板情報を処理（30秒に1回CSVに保存）
+// 板情報を処理（1秒に1回CSVに保存）
 void process_ws_data(const std::string& symbol, double imbalance, double imbalance_change,
                      std::map<std::string, MarketState>& market_state) {
     static std::map<std::string, std::chrono::steady_clock::time_point> last_save_times;
@@ -47,9 +47,9 @@ void process_ws_data(const std::string& symbol, double imbalance, double imbalan
     market_state[symbol].imbalance = imbalance;
     market_state[symbol].diff = imbalance_change;
     
-    // 30秒ごとにCSVに保存
+    // 1秒ごとにCSVに保存
     if (!last_save_times.count(symbol) || 
-        now - last_save_times[symbol] >= std::chrono::seconds(30)) {
+        now - last_save_times[symbol] >= std::chrono::seconds(1)) {
         save_market_data_to_csv(symbol, imbalance, imbalance_change);
         last_save_times[symbol] = now;
     }
