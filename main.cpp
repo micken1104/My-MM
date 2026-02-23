@@ -61,14 +61,26 @@ int main() {
     }
     
     // 30分ごとにSOM再学習
-    std::thread training_thread([&symbols]() {
-        while (true) {
-            std::this_thread::sleep_for(std::chrono::minutes(30));
-            
+    std::thread training_thread([&symbols, &som_models, &price_mutex]() {
+        while (true) {        
             for (const auto& symbol : symbols) {
                 std::string cmd = "C:\\Users\\MichihikoKubota\\Documents\\My-MM\\.venv\\Scripts\\python.exe train_som.py " + symbol;
-                std::system(cmd.c_str());
+                int result = std::system(cmd.c_str());
+                if (result == 0){
+                    std::lock_guard<std::mutex> lock(price_mutex); // 推論中に読み替えないようロック
+                    std::string prefix = "models/" + symbol + "_";
+                    bool success = som_models[symbol].loadModel(
+                        prefix + "map_weights.csv",
+                        prefix + "expectancy.csv",  
+                        prefix + "scaling_params.csv",
+                        prefix + "risk_map.csv"
+                    );
+                    if (success) {
+                        std::cout << "Model reloaded for " << symbol << std::endl;
+                    }
+                }
             }
+            std::this_thread::sleep_for(std::chrono::minutes(30));
         }
     });
     training_thread.detach();
@@ -138,7 +150,7 @@ int main() {
                     }
                 }
             } catch (const std::exception& e) {
-                // Error handling silently
+                // Error
             }
         }
     });

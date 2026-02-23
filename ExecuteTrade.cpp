@@ -4,7 +4,7 @@
 void execute_trade(double expectancy, double current_price, std::string symbol, 
                    std::vector<TradeData>& pending_trades, double local_risk) {
     // 期待値が高い場合のみトレード
-    if (expectancy <= 0.15) {
+    if (expectancy <= 0.05) {
         return;
     }
     

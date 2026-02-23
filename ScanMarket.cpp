@@ -33,7 +33,7 @@ void save_market_data_to_csv(const std::string& symbol, double imbalance, double
     
     file.flush();
     file.close();
-    std::cout << "Saved " << symbol << std::endl;
+    //std::cout << "Saved " << symbol << std::endl;
 }
 
 // 板情報を処理（30秒に1回CSVに保存）
