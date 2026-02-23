@@ -81,6 +81,14 @@ combined_df = pd.merge_asof(
 # BTCデータが存在しない行を削除（古いデータ行）
 combined_df = combined_df.dropna(subset=['btc_imbalance'])
 
+# 1. 未来のデータを「今」の行に持ってくる (30行 = 約30秒先と仮定)
+# imbalance_change を 30個分上にずらす
+combined_df['future_pnl'] = combined_df['imbalance_change'].shift(-30)
+
+# 2. 特徴量の準備セクションで、price_changes を future_pnl に変える
+# feature_data を作る前に shift するので、dropna が必要
+combined_df = combined_df.dropna(subset=['future_pnl'])
+
 # ==================== 6. データの十分性チェック ====================
 if len(combined_df) < MIN_REQUIRED_DATA:
     print(f"警告: {target_symbol} は結合後 {len(combined_df)} 行です")
@@ -91,11 +99,14 @@ if len(combined_df) < MIN_REQUIRED_DATA:
 # 特徴量: 対象シンボルとBTCのインバランス・インバランス変化
 features = ['imbalance', 'imbalance_change', 'btc_imbalance', 'btc_imbalance_change']
 
+# 最新のデータを使用
+working_df = combined_df.tail(30000).copy()
+
 # データテーブルの構築（最新30000行を使用）
-feature_data = combined_df[features].tail(30000).reset_index(drop=True)
+feature_data = working_df[features].reset_index(drop=True)
 
 # インバランス変化を疑似価格変動として使用
-price_changes = feature_data['imbalance_change'].values * 100
+price_changes = working_df['future_pnl'].values * 100
 
 # ==================== 8. 特徴量の正規化 ====================
 scaler = MinMaxScaler()
@@ -128,8 +139,8 @@ print(f"  - エポック: {EPOCHS}")
 for epoch in range(EPOCHS):
     # 進行度に基づいて学習率と近傍半径を減衰
     progress = epoch / float(EPOCHS)
-    learning_rate = 0.05 * (1.0 - progress)
-    sigma = 4.0 * (1.0 - progress)
+    learning_rate = 0.03 * (1.0 - progress)
+    sigma = 3.0 * (1.0 - progress)
     
     # 各データポイントに対して学習
     for i in range(len(data_scaled)):

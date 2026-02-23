@@ -7,7 +7,7 @@
 void execute_trade(double expectancy, double current_price, std::string symbol, 
                    std::vector<TradeData>& pending_trades, double local_risk) {
     // 期待値が高い場合のみトレード
-    if (expectancy <= 0.15) {
+    if (expectancy <= 0.20) {
         return;
     }
     
@@ -48,10 +48,10 @@ void check_and_close_trades(std::vector<TradeData>& active_trades,
         bool should_close = false;
         std::string reason = "";
 
-        if (pnl_ratio >= 0.0025) {        // 0.25% 利益で利確
+        if (pnl_ratio >= 0.001) {        // 0.1% 利益で利確
             should_close = true;
             reason = "TP (Take Profit)";
-        } else if (pnl_ratio <= -0.001) { // 0.1% 損失で損切
+        } else if (pnl_ratio <= -0.0015) { // 0.15% 損失で損切
             should_close = true;
             reason = "SL (Stop Loss)";
         } else if (elapsed >= 60) {       // 60秒経過でタイムアップ
