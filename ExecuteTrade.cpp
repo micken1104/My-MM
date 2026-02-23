@@ -4,6 +4,11 @@
 #include <map>
 #include <iomanip>
 
+// グローバル変数
+static double total_pnl_pct = 0.0; // 通算損益（％）
+static int win_count = 0;
+static int loss_count = 0;
+
 void execute_trade(double expectancy, double current_price, std::string symbol, 
                    std::vector<TradeData>& pending_trades, double local_risk) {
     // 期待値が高い場合のみトレード
@@ -61,14 +66,23 @@ void check_and_close_trades(std::vector<TradeData>& active_trades,
 
         if (should_close) {
             double pnl_pct = pnl_ratio * 100.0;
-            
+            total_pnl_pct += pnl_pct; // 合計に加算
+            if (pnl_pct > 0) win_count++;
+            else if (pnl_pct < 0) loss_count++;
+
             // コンソールに決済ログを表示
             std::cout << "SELL [" << reason << "] " << it->symbol 
                     << " at " << current_price 
                     << " | PnL: " << std::fixed << std::setprecision(3) << pnl_pct << "%" 
                     << " | Hold: " << elapsed << "s" << std::endl;
-
+            // 画面に「現在の全成績」を表示
+            std::cout << "========== WALLET STATS ==========" << std::endl;
+            std::cout << " Total PnL: " << total_pnl_pct << "%" << std::endl;
+            std::cout << " Win/Loss: " << win_count << "/" << loss_count << std::endl;
+            std::cout << "==================================" << std::endl;
             // CSVに保存
+            // 銘柄別CSVの下に、共通ログも追記する
+            std::ofstream all_file("data/all_trades_history.csv", std::ios::app);
             std::string filename = "data/" + it->symbol + "_trades.csv";
             std::ofstream file(filename, std::ios::app);
             if (file.is_open()) {
@@ -77,6 +91,8 @@ void check_and_close_trades(std::vector<TradeData>& active_trades,
                 file << ts << "," << it->symbol << "," << it->entry_price << "," 
                     << current_price << "," << pnl_pct << "," << reason << "\n";
                 file.close();
+                all_file << ts << "," << it->symbol << "," << pnl_pct << "," << total_pnl_pct << "\n";
+                all_file.close();
             }
 
             it = active_trades.erase(it); // ポジション削除
