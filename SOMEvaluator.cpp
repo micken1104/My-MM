@@ -69,7 +69,6 @@ bool SOMEvaluator::loadModel(const std::string& weights_csv,
     return true; 
 }
 
-// ★統合されたメイン関数：計算を1回に集約
 SOMResult SOMEvaluator::getPrediction(const std::vector<double>& raw_data) {
     std::lock_guard<std::mutex> lock(mtx);
     

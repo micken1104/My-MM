@@ -13,7 +13,7 @@
 #include <mutex>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
+
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -161,45 +161,9 @@ int main() {
     // メインループ
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
-        
         {
             std::lock_guard<std::mutex> lock(price_mutex);
-            
-            auto now = std::chrono::steady_clock::now();
-            
-            for (auto it = active_trades.begin(); it != active_trades.end(); ) {
-                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - it->entry_time).count();
-                
-                // 60秒後に決済
-                if (elapsed >= 60) {
-                    double exit_price = prices[it->symbol];
-                    double pnl_pct = (exit_price - it->entry_price) / it->entry_price * 100.0;
-                    
-                    // CSV保存
-                    std::string filename = "data/" + it->symbol + "_trades.csv";
-                    bool file_exists = std::filesystem::exists(filename);
-                    std::ofstream file(filename, std::ios::app);
-                    
-                    if (!file_exists) {
-                        file << "entry_time,symbol,entry_price,exit_price,pnl_pct,entry_imbalance\n";
-                    }
-                    
-                    long long entry_ts = std::chrono::duration_cast<std::chrono::seconds>(
-                        std::chrono::system_clock::now().time_since_epoch()).count();
-                    
-                    file << entry_ts << ","
-                         << it->symbol << ","
-                         << it->entry_price << ","
-                         << exit_price << ","
-                         << std::fixed << std::setprecision(4) << pnl_pct << ","
-                         << std::setprecision(6) << it->entry_imbalance << "\n";
-                    file.close();
-                    
-                    it = active_trades.erase(it);
-                } else {
-                    ++it;
-                }
-            }
+            check_and_close_trades(active_trades, prices);
         }
     }
     

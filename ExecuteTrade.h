@@ -1,9 +1,12 @@
 #ifndef EXECUTETRADE_H
 #define EXECUTETRADE_H
 
+#include <fstream>
+#include <iostream>
 #include <string>
 #include <vector>
 #include <chrono>
+#include <map>
 
 struct TradingConstraints {
     double tp_rate;
@@ -27,5 +30,7 @@ struct TradeData {
 
 void execute_trade(double expectancy, double current_price, std::string symbol, 
                    std::vector<TradeData>& pending_trades, double local_risk);
+void check_and_close_trades(std::vector<TradeData>& active_trades, 
+                            std::map<std::string, double>& current_prices);
 
 #endif

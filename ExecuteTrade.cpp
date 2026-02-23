@@ -1,10 +1,13 @@
 #include "ExecuteTrade.h"
+#include <fstream>
 #include <iostream>
+#include <map>
+#include <iomanip>
 
 void execute_trade(double expectancy, double current_price, std::string symbol, 
                    std::vector<TradeData>& pending_trades, double local_risk) {
     // 期待値が高い場合のみトレード
-    if (expectancy <= 0.05) {
+    if (expectancy <= 0.15) {
         return;
     }
     
@@ -24,4 +27,61 @@ void execute_trade(double expectancy, double current_price, std::string symbol,
     
     pending_trades.push_back(new_trade);
     std::cout << "BUY " << symbol << " at " << current_price << std::endl;
+}
+
+void check_and_close_trades(std::vector<TradeData>& active_trades, 
+                            std::map<std::string, double>& current_prices) {
+    auto now = std::chrono::steady_clock::now();
+            
+    for (auto it = active_trades.begin(); it != active_trades.end(); ) {
+        // 現在の価格が取得できない場合はスキップ
+        if (current_prices.find(it->symbol) == current_prices.end()) {
+            ++it; continue;
+        }
+        
+        double current_price = current_prices[it->symbol];
+        double pnl_ratio = (current_price - it->entry_price) / it->entry_price;
+
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - it->entry_time).count();
+        
+        // --- 判定フラグ ---
+        bool should_close = false;
+        std::string reason = "";
+
+        if (pnl_ratio >= 0.0025) {        // 0.25% 利益で利確
+            should_close = true;
+            reason = "TP (Take Profit)";
+        } else if (pnl_ratio <= -0.001) { // 0.1% 損失で損切
+            should_close = true;
+            reason = "SL (Stop Loss)";
+        } else if (elapsed >= 60) {       // 60秒経過でタイムアップ
+            should_close = true;
+            reason = "Time Up";
+        }
+
+        if (should_close) {
+            double pnl_pct = pnl_ratio * 100.0;
+            
+            // コンソールに決済ログを表示
+            std::cout << "SELL [" << reason << "] " << it->symbol 
+                    << " at " << current_price 
+                    << " | PnL: " << std::fixed << std::setprecision(3) << pnl_pct << "%" 
+                    << " | Hold: " << elapsed << "s" << std::endl;
+
+            // CSVに保存
+            std::string filename = "data/" + it->symbol + "_trades.csv";
+            std::ofstream file(filename, std::ios::app);
+            if (file.is_open()) {
+                long long ts = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                file << ts << "," << it->symbol << "," << it->entry_price << "," 
+                    << current_price << "," << pnl_pct << "," << reason << "\n";
+                file.close();
+            }
+
+            it = active_trades.erase(it); // ポジション削除
+        } else {
+            ++it;
+        }
+    }
 }
