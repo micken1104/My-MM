@@ -1,4 +1,5 @@
 #include "ExecuteTrade.h"
+#include "ScanMarket.h" // MarketStateを参照するために必要
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -11,7 +12,8 @@ static int loss_count = 0;
 std::map<std::string, std::chrono::steady_clock::time_point> last_exit_times;
 
 void execute_trade(double expectancy, double current_price, std::string symbol, 
-                   std::vector<TradeData>& pending_trades, double local_risk) {
+                   std::vector<TradeData>& pending_trades, double local_risk,
+                   const MarketState& state) {
     // クールダウンチェック（決済から30秒間はエントリー禁止）
     auto now = std::chrono::steady_clock::now();
     if (last_exit_times.count(symbol)) {
@@ -20,9 +22,15 @@ void execute_trade(double expectancy, double current_price, std::string symbol,
     }
     
     // 期待値が高い場合のみトレード
-    if (expectancy <= 0.20) {
-        return;
-    }
+    // ボラティリティが高い時だけ、期待値のハードルを下げる（チャンスが多いので）
+    double dynamic_threshold = (state.volatility > 0.001) ? 0.30 : 0.45;
+    if (expectancy <= dynamic_threshold) return;
+    // 板の厚みフィルター
+    // 厚みが極端に薄いときは、インバランスの数値が嘘をつきやすいので避ける
+    if (state.total_depth < 10.0) return;
+    // ボラティリティフィルター
+    // 凪の状態でのインバランスは、価格が動かずタイムアップになりやすい
+    if (state.volatility < 0.0001) return;
     
     // この銘柄でポジションが既にあるかチェック
     for (const auto& trade : pending_trades) {
@@ -61,7 +69,7 @@ void check_and_close_trades(std::vector<TradeData>& active_trades,
         bool should_close = false;
         std::string reason = "";
 
-        if (pnl_ratio >= 0.001) {        // 0.1% 利益で利確
+        if (pnl_ratio >= 0.002) {        // 0.2% 利益で利確
             should_close = true;
             reason = "TP (Take Profit)";
         } else if (pnl_ratio <= -0.0015) { // 0.15% 損失で損切

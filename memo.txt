@@ -1,0 +1,12 @@
+.\.venv\Scripts\python.exe -m pip install matplotlib   
+
+git add . ; git commit -m "Updated all" ; git push   
+
+when we only refered to 4 datas to make SOM(timestamp,symbol,imbalance,imbalance_change), we cannot detect which the situation is now:
+A: thickness is too narrow, so only a few price order can effect a lot to imbalance
+B: thickness is too thick, so we can't detect the imbalance correctly.
+If we add Market Depth to the reference, we can detect the situation whether a real trend or a just noise and solve this problem.
+
+And if we add Volality(the width of recent price changing), the SOM will be able to detect what situation the market is(active or stable). We can avoid entries on useless situations.
+
+When we check only imbalance_change, the SOM react deception caused sudden rise due to a momentary contract. If we add the correlation between the current coin and BTC to the SOM's dimention, we can distinct whether the rise caused by the trends on whole market or trends on only that coin(deliberated trend).

@@ -8,6 +8,9 @@
 #include <chrono>
 #include <map>
 
+struct MarketState; // 前方宣言
+// どこか別の場所で定義されている MarketState という構造体を使うよ
+
 struct TradingConstraints {
     double tp_rate;
     double sl_rate;
@@ -29,7 +32,8 @@ struct TradeData {
 };
 
 void execute_trade(double expectancy, double current_price, std::string symbol, 
-                   std::vector<TradeData>& pending_trades, double local_risk);
+                   std::vector<TradeData>& pending_trades, double local_risk,
+                   const MarketState& state);
 void check_and_close_trades(std::vector<TradeData>& active_trades, 
                             std::map<std::string, double>& current_prices);
 

@@ -62,8 +62,8 @@ bool SOMEvaluator::loadModel(const std::string& weights_csv,
         }
     }
 
-    // バリデーション (4つの特徴量: imbalance, imbalance_change, btc_imbalance, btc_imbalance_change)
-    if (map_weights.size() != 400 || expectancy_map.size() != 400 || mins.size() != 4) {
+    // バリデーション (7つの特徴量: imbalance, imbalance_change, btc_imbalance, btc_imbalance_change)
+    if (map_weights.size() != 400 || expectancy_map.size() != 400 || mins.size() != 7) {
         return false;
     }
     return true; 

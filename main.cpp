@@ -120,33 +120,35 @@ int main() {
                 double mid_price = (bid_price + ask_price) / 2.0;
                 double imbalance = (bid_volume - ask_volume) / (bid_volume + ask_volume);
                 
+                // 板の総厚みを計算
+                double total_depth = bid_volume + ask_volume;
+
                 {
                     std::lock_guard<std::mutex> lock(price_mutex);
-                    
+    
                     prices[symbol] = mid_price;
-                    
-                    double previous_imbalance = market_state[symbol].imbalance;
-                    double imbalance_change = imbalance - previous_imbalance;
-                    
-                    process_ws_data(symbol, imbalance, imbalance_change, market_state);
-                    market_state[symbol].last_price = mid_price;
+
+                    // インバランスの変化を計算（初回は0.0）
+                    double imbalance_change = market_state.count(symbol) ? imbalance - market_state[symbol].imbalance : 0.0;
+
+                    // 計算とCSV保存を実行
+                    double btc_price = prices.count(btc_symbol) ? prices[btc_symbol] : mid_price;
+                    process_ws_data(symbol, imbalance, imbalance_change, total_depth, mid_price, btc_price, market_state);
                     
                     if (prices.count(symbol) && prices.count(btc_symbol)) {
-                        double symbol_imbalance = market_state[symbol].imbalance;
-                        double symbol_imbalance_change = market_state[symbol].diff;  // diff = imbalance_change
-                        double btc_imbalance = market_state[btc_symbol].imbalance;
-                        double btc_imbalance_change = market_state[btc_symbol].diff;  // diff = imbalance_change
-                        
-                        // 新しいフォーマット: 4つの特徴量
+                        // SOMへの入力
                         std::vector<double> features = {
-                            symbol_imbalance,
-                            symbol_imbalance_change,
-                            btc_imbalance,
-                            btc_imbalance_change
+                            market_state[symbol].imbalance,
+                            market_state[symbol].diff,
+                            market_state[btc_symbol].imbalance,
+                            market_state[btc_symbol].diff,
+                            market_state[symbol].total_depth,
+                            market_state[symbol].volatility,
+                            market_state[symbol].btc_corr
                         };
                         
                         SOMResult result = som_models[symbol].getPrediction(features);
-                        execute_trade(result.expectancy, mid_price, symbol, active_trades, symbol_imbalance);
+                        execute_trade(result.expectancy, mid_price, symbol, active_trades, market_state[symbol].imbalance, market_state[symbol]);
                     }
                 }
             } catch (const std::exception& e) {

@@ -52,13 +52,11 @@ if not os.path.exists(support_market_path):
     sys.exit(1)
 
 # ==================== 4. データの読み込み ====================
-# 新しいCSV形式: timestamp, symbol, imbalance, imbalance_change
-df_target = pd.read_csv(target_market_path, 
-                        names=['timestamp', 'symbol', 'imbalance', 'imbalance_change'],
-                        header=0)
-df_support = pd.read_csv(support_market_path,
-                         names=['timestamp', 'symbol', 'imbalance', 'imbalance_change'],
-                         header=0)
+# total_depth, price, btc_price, volatility, btc_corr が追加されている
+cols = ['timestamp', 'symbol', 'imbalance', 'imbalance_change', 'total_depth', 'price', 'btc_price', 'volatility', 'btc_corr']
+
+df_target = pd.read_csv(target_market_path, names=cols, header=0)
+df_support = pd.read_csv(support_market_path, names=cols, header=0)
 
 # タイムスタンプを数値に変換してソート
 df_target['timestamp'] = pd.to_numeric(df_target['timestamp'], errors='coerce')
@@ -83,11 +81,10 @@ combined_df = combined_df.dropna(subset=['btc_imbalance'])
 
 # 1. 未来のデータを「今」の行に持ってくる (30行 = 約30秒先と仮定)
 # imbalance_change を 30個分上にずらす
-combined_df['future_pnl'] = combined_df['imbalance_change'].shift(-30)
-
+combined_df['future_pnl'] = (combined_df['price'].shift(-30) - combined_df['price']) / combined_df['price']
 # 2. 特徴量の準備セクションで、price_changes を future_pnl に変える
 # feature_data を作る前に shift するので、dropna が必要
-combined_df = combined_df.dropna(subset=['future_pnl'])
+combined_df = combined_df.dropna(subset=['btc_imbalance', 'future_pnl'])
 
 # ==================== 6. データの十分性チェック ====================
 if len(combined_df) < MIN_REQUIRED_DATA:
@@ -96,8 +93,15 @@ if len(combined_df) < MIN_REQUIRED_DATA:
     sys.exit(1)
 
 # ==================== 7. 特徴量の準備 ====================
-# 特徴量: 対象シンボルとBTCのインバランス・インバランス変化
-features = ['imbalance', 'imbalance_change', 'btc_imbalance', 'btc_imbalance_change']
+features = [
+    'imbalance', 
+    'imbalance_change', 
+    'btc_imbalance', 
+    'btc_imbalance_change',
+    'total_depth',    # 追加：板の厚み
+    'volatility',     # 追加：相場の荒れ具合
+    'btc_corr'        # 追加：BTCとの連動性
+]
 
 # 最新のデータを使用
 working_df = combined_df.tail(30000).copy()
@@ -106,7 +110,7 @@ working_df = combined_df.tail(30000).copy()
 feature_data = working_df[features].reset_index(drop=True)
 
 # インバランス変化を疑似価格変動として使用
-price_changes = working_df['future_pnl'].values * 100
+price_changes = working_df['future_pnl'].values * 1000
 
 # ==================== 8. 特徴量の正規化 ====================
 scaler = MinMaxScaler()
