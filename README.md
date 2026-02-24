@@ -1,87 +1,191 @@
-# Virtual Trading Bot with SOM
+# SOM（自己組織化マップ）を使った仮想トレードボット
 
-A real-time trading bot that uses Self-Organizing Maps (SOM) to automatically trade virtual positions based on order book imbalance signals.
+リアルタイムのオーダーブックのインバランスを利用して、機械学習モデル（SOM）により自動で仮想ポジションを売買するトレードボットです。
 
-## How It Works
+## 動作原理
 
-1. **WebSocket Connection**: Connects to Binance stream to receive real-time order book data for 4 trading pairs (ATOM, ETH, SOL, BTC).
+1. **WebSocket接続**: Binanceのストリームに接続し、リアルタイムのオーダーブック（bookTicker）データを4銘柄（ATOMUSDT、ETHUSDT、SOLUSDT、BTCUSDT）から1秒ごとに取得します。
 
-2. **Market Data Collection**: Extracts bid/ask prices and volumes, calculating order book imbalance for each symbol.
+2. **市場データ収集**: ビッド・アスク価格とボリュームから以下の7つの特徴量を計算して記録します：
+   - **Imbalance**: (買い板厚み - 売り板厚み) / 合計厚み
+   - **Imbalance Change**: 前回との不均衡の変化
+   - **Total Depth**: オーダーブックの総厚み
+   - **Volatility**: 過去60秒間の価格の標準偏差（相場の荒れ具合）
+   - **BTC Correlation**: BTCとの連動性（相対的な騰落率の比）
 
-3. **SOM Evaluation**: Passes the current imbalance and BTC data through a pre-trained SOM model to generate an expectancy score.
+3. **SOM予測**: 収集したデータをSOMモデルに入力し、各市場パターンの将来30秒間の期待利益を生成します。
 
-4. **Virtual Trading**:
-   - If expectancy > 0.15: Opens a virtual LONG position
-   - Holds position for 30 seconds
-   - Automatically closes and saves PnL to CSV
+4. **フィルター**:
+   - **期待値フィルター**: ボラティリティ > 0.001の場合は期待値 > 0.30、それ以外は期待値 > 0.45
+   - **板厚みフィルター**: total_depth < 10.0 の場合は取引しない
+   - **ボラティリティフィルター**: volatility < 0.0001 の場合は取引しない
+   - **ポジション管理**: 同一銘柄での複数ポジションは保有しない
 
-5. **Model Retraining**: Every 30 minutes, the bot retrains the SOM model using collected market data via Python script.
+5. **仮想取引**:
+   - フィルターを通過した場合、仮想LONGポジションを建てる
+   - **利確**: 0.2% の利益で自動決済
+   - **損切**: 0.15% の損失で自動決済
+   - **タイムアップ**: 60秒経過で強制決済
+   - **クールダウン**: 決済後30秒間は同一銘柄のエントリー禁止
 
-## Data Flow
+6. **モデル再学習**: 30分ごとに収集した市場データ（最新30,000行）を使用して、Pythonスクリプトで自動的にSOMモデルを再学習します。
+
+## データフロー
 
 ```
-WebSocket (Binance)
+WebSocket (Binance) → bookTicker ストリーム
     ↓
-Extract: bid, ask, imbalance
+7つの特徴量を計算 (imbalance, diff, depth, vol, btc_corr)
     ↓
-Store market data → data/*_market_data.csv
+市場データを保存 (1秒ごと) → data/*_market_data.csv
     ↓
-Load SOM model → predict expectancy
+SOMモデルをロード → BMU特定 → 期待値を予測
     ↓
-If expectancy > 0.15 → Execute virtual trade
+フィルター判定 → 期待値 + 板厚み + ボラティリティ + ポジション確認
     ↓
-After 30 seconds → Close trade & save to data/*_trades.csv
+条件満たす → 仮想LONGポジション建て
     ↓
-Every 30 min → Python retrains SOM
+60秒以内に 0.2% 利確 or 0.15% 損切 or タイムアップ → 強制決済
+    ↓
+全取引結果を保存 → data/*_trades.csv + data/all_trades_history.csv
+    ↓
+30分ごと → Python で自動 SOM 再学習
 ```
 
-## Output Files
+## 出力ファイル
 
-- **data/SYMBOL_market_data.csv**: Board imbalance data for SOM training
-- **data/SYMBOL_trades.csv**: Virtual trading results (entry, exit, PnL)
+- **data/SYMBOL_market_data.csv**: SOM再学習用のオーダーブック不均衡データ（タイムスタンプ、シンボル、7つの特徴量）
+- **data/SYMBOL_trades.csv**: 銘柄別の仮想取引結果（タイムスタンプ、エントリー価格、クローズ価格、PnL%、決済理由）
+- **data/all_trades_history.csv**: 全銘柄の通算取引ログ（合計PnL%の推移）
 
-## Key Parameters
+## 主要パラメータ
 
-| Parameter | Value | Purpose |
-|-----------|-------|---------|
-| Entry Signal | expectancy > 0.15 | BUY trigger |
-| Hold Time | 30 seconds | Position duration |
-| Data Save Interval | 30 seconds | Market data frequency |
-| Model Retraining | Every 30 minutes | SOM update |
+| パラメータ | 値 | 説明 |
+|-----------|-----|------|
+| **エントリー条件（期待値）** | 期待値 > 0.30（ボラティリティ高） or > 0.45（流動性低） | 動的な買いシグナル閾値 |
+| **利確条件** | 0.2% 利益 | 自動利益確定 |
+| **損切条件** | 0.15% 損失 | 自動損失確定 |
+| **最大保有時間** | 60秒 | タイムアップでの強制決済 |
+| **クールダウン期間** | 30秒 | 決済後の再エントリー禁止期間 |
+| **板厚みフィルター** | total_depth < 10.0 | 液動性不足で取引見送り |
+| **ボラティリティフィルター** | volatility < 0.0001 | 停滞時に取引見送り |
+| **訓練データ最小数** | 300行 | SOM学習に必要なデータサイズ |
+| **SOMグリッドサイズ** | 20 × 20 = 400ニューロン | マップの解像度 |
+| **学習エポック数** | 20回 | 再学習時の反復回数 |
+| **モデル再学習周期** | 30分ごと | 自動学習トリガー |
 
-## Setup
+## セットアップ
 
-1. Install C++ dependencies:
-   ```
-   vcpkg install fmt nlohmann-json ixwebsocket
-   ```
+### 前提条件
+- Windows 10/11
+- Visual Studio Build Tools または Visual Studio Community
+- CMake 3.15 以上
+- Python 3.9 以上
 
-2. Set up Python environment:
-   ```
-   python -m venv .venv
-   .venv\Scripts\activate
-   pip install numpy pandas scikit-learn
-   ```
+### C++依存パッケージのインストール
+```bash
+vcpkg install fmt nlohmann-json ixwebsocket
+```
 
-3. Build:
-   ```
-   cmake --build build --config Release
-   ```
+### Python環境の構築
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install numpy pandas scikit-learn
+```
 
-4. Run:
-   ```
-   ./build/Release/My-MM.exe
-   ```
+### ビルド
+```bash
+cmake --build build --config Release
+```
 
-## Project Structure
+### 実行
+```bash
+./build/Release/My-MM.exe
+```
+
+## プロジェクト構成
 
 ```
 .
-├── main.cpp              # WebSocket, trading loop
-├── ScanMarket.cpp        # Market data collection & CSV save
-├── ExecuteTrade.cpp      # Trade entry logic
-├── SOMEvaluator.cpp      # SOM prediction
-├── train_som.py          # SOM retraining script
-├── data/                 # Generated market & trade data
-└── models/               # SOM weights (loaded at startup)
+├── main.cpp                      # WebSocket接続、トレードループ、モデル再学習スレッド
+├── ScanMarket.cpp/h              # 市場データ収集＆計算処理
+├── ExecuteTrade.cpp/h            # トレード実行・決済ログ・統計管理
+├── SOMEvaluator.cpp/h            # SOM推論エンジン
+├── train_som.py                  # SOM自動再学習スクリプト
+├── CMakeLists.txt                # ビルド設定
+├── data/                         # 生成される市場データ・取引履歴
+│   ├── *_market_data.csv         # 特徴量（imbalance, volatility等）
+│   ├── *_trades.csv              # 各銘柄の取引結果
+│   └── all_trades_history.csv    # 全取引の通算成績
+└── models/                       # SOM学習済みモデル
+    ├── *_map_weights.csv         # SOMニューロンの重みベクトル（400行 × 7列）
+    ├── *_expectancy.csv          # 各ニューロンの期待値（400行）
+    ├── *_risk_map.csv            # 各ニューロンのリスク（400行）
+    └── *_scaling_params.csv      # 特徴量の正規化パラメータ
 ```
+
+## SOM再学習メカニズム
+
+### データ集約
+- 各銘柄の市場データを1秒ごとに記録
+- 30分周期で過去30,000行のデータを使用してモデル再学習
+
+### 特徴量
+1. **imbalance**: オーダーブック不均衡度（-1 ～ 1）
+2. **imbalance_change**: 前回との不均衡の変化
+3. **total_depth**: オーダーブックの総厚み
+4. **price**: 現在の中値
+5. **btc_price**: BTC価格（相関計算用）
+6. **volatility**: 過去60秒の価格変動率の標準偏差
+7. **btc_corr**: BTC連動性（相対騰落率）
+
+### 学習プロセス
+1. 日本時間で指定した各銘柄のCSVを読み込む
+2. BTCの時系列データとマージ（時刻ベースの直前値結合）
+3. 未来30秒間の価格変動を教師データとして準備
+4. 7つの特徴量を0-1の範囲に正規化
+5. 20エポック、20×20=400ニューロンのSOMを訓練
+6. 各ニューロンに対応する期待値（平均PnL）とリスク（標準偏差）を計算
+7. 重み、期待値、リスク、正規化パラメータを4つのCSVに保存
+8. C++側で自動的にmodelsフォルダから読み込み
+
+## トレード統計
+
+プログラム実行中、以下の統計が画面にリアルタイム表示されます：
+
+```
+========== WALLET STATS ==========
+ Total PnL: +2.345%
+ Win/Loss: 12/5
+==================================
+```
+
+全取引結果は `data/all_trades_history.csv` に記録され、Pythonで後分析可能です。
+
+## トラブルシューティング
+
+### モデルがロードされない
+→ `models/` フォルダに `*_map_weights.csv` などファイルが存在するか確認
+→ 初回実行時は `train_som.py` を手動実行: `.venv\Scripts\python.exe train_som.py ETHUSDT`
+
+### 何も取引されない
+→ コンソール出力のフィルタリング理由を確認（期待値、板厚み、ボラティリティ）
+→ `data/*_market_data.csv` にデータが蓄積されているか確認
+→ 市場データが各銘柄で最小300行以上ないと学習が進まない
+
+### 仮想取引が偏っている
+→ 期待値の閾値が高すぎる可能性：30分以上連続実行してSOMを何度か再学習させる
+→ データが不足している可能性：数時間連続実行してサンプル数を増やす
+
+## パフォーマンス最適化
+
+- **学習率の調整**: `train_som.py` の `learning_rate` 初期値を変更
+- **エポック数**: より時間をかけたい場合は `EPOCHS` を増加（デフォルト20）
+- **グリッドサイズ**: より細かいマッピングが必要な場合は `SOM_WIDTH/HEIGHT` を増加
+- **期待値閾値**: `ExecuteTrade.cpp` の `dynamic_threshold` を調整してエントリー回数を制御
+
+## ライセンス
+
+このプロジェクトは個人の学習・研究目的で作成されました。
+
