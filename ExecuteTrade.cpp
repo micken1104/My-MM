@@ -11,6 +11,15 @@ static int win_count = 0;
 static int loss_count = 0;
 std::map<std::string, std::chrono::steady_clock::time_point> last_exit_times;
 
+bool is_market_crashing(const MarketState& state) {
+    // BTCの相関が高く、かつBTCに対して負の方向への勢いが強い場合を「地合い悪化」とみなす
+    // 強い相関があり、かつ「負の方向」への勢いが強いかチェック
+    // state.diff がマイナス（下落方向）かつ ボラが高い場合
+    if (state.btc_corr > 0.7 && state.diff < -0.0005 && state.volatility > 0.001) {
+        return true; 
+    }
+    return false;
+}
 void execute_trade(double expectancy, double current_price, std::string symbol, 
                    std::vector<TradeData>& pending_trades, double local_risk,
                    const MarketState& state) {
@@ -23,14 +32,32 @@ void execute_trade(double expectancy, double current_price, std::string symbol,
     
     // 期待値が高い場合のみトレード
     // ボラティリティが高い時だけ、期待値のハードルを下げる（チャンスが多いので）
-    double dynamic_threshold = (state.volatility > 0.001) ? 0.30 : 0.45;
-    if (expectancy <= dynamic_threshold) return;
+    double dynamic_threshold = (state.volatility > 0.001) ? 0.15 : 0.2;
+    // 地合いフィルターの適用
+    if (is_market_crashing(state)) {
+        dynamic_threshold += 0.15; // クラッシュ時は 0.3 ~ 0.35 までハードルを上げる
+        // もしくは return; で完全に止めても良い
+    }
+    if (expectancy <= dynamic_threshold) {
+        // std::cout << symbol << " Skip: Expectancy low (" << expectancy << ")" << std::endl;
+        return;
+    }
+
+
     // 板の厚みフィルター
     // 厚みが極端に薄いときは、インバランスの数値が嘘をつきやすいので避ける
-    if (state.total_depth < 10.0) return;
+    if (state.total_depth * current_price < 1000.0) { // USDT換算で1000未満は薄いとみなす
+        // std::cout << symbol << " Skip: Too Thin (Depth: " << state.total_depth << ")" << std::endl;
+        return;
+    }
+
     // ボラティリティフィルター
     // 凪の状態でのインバランスは、価格が動かずタイムアップになりやすい
-    if (state.volatility < 0.0001) return;
+    double vol_threshold = (symbol == "BTCUSDT") ? 0.00003 : 0.00008; // 銘柄ごとにボラの出やすさが違う
+    if(state.volatility < vol_threshold) {
+        // std::cout << symbol << " Skip: No Volatility (Vol: " << state.volatility << ")" << std::endl;
+        return;
+    }
     
     // この銘柄でポジションが既にあるかチェック
     for (const auto& trade : pending_trades) {
@@ -69,13 +96,13 @@ void check_and_close_trades(std::vector<TradeData>& active_trades,
         bool should_close = false;
         std::string reason = "";
 
-        if (pnl_ratio >= 0.002) {        // 0.2% 利益で利確
+        if (pnl_ratio >= 0.0012) {        // 0.12% 利益で利確
             should_close = true;
             reason = "TP (Take Profit)";
         } else if (pnl_ratio <= -0.0015) { // 0.15% 損失で損切
             should_close = true;
             reason = "SL (Stop Loss)";
-        } else if (elapsed >= 60) {       // 60秒経過でタイムアップ
+        } else if (elapsed >= 45) {       // 45秒経過でタイムアップ,30秒たっても離隔できないならそのインバランスはもうすでに解消か予測外れ
             should_close = true;
             reason = "Time Up";
         }

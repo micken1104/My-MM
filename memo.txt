@@ -10,3 +10,36 @@ If we add Market Depth to the reference, we can detect the situation whether a r
 And if we add Volality(the width of recent price changing), the SOM will be able to detect what situation the market is(active or stable). We can avoid entries on useless situations.
 
 When we check only imbalance_change, the SOM react deception caused sudden rise due to a momentary contract. If we add the correlation between the current coin and BTC to the SOM's dimention, we can distinct whether the rise caused by the trends on whole market or trends on only that coin(deliberated trend).
+
+
+SOMの構造：現在時刻T に記録された市場データ（imbalance、volatilityなど）を
+SOMの入力値として
+その同じ時刻Tから30秒後（T+30秒）の価格変動率を
+**教師信号（正解ラベル）**として使用する
+ということです。
+
+つまり：
+
+CSV に記録した「現在の不均衡度」「ボラティリティ」などの特徴量
+その30秒後に「実際に価格がいくら動いたか」
+この対応関係を使ってSOMを訓練し、各ニューロンに「このパターンの特徴をキャッチしたら、30秒後は平均的にこれだけ上がる（期待値）」という情報を学習させています。
+
+
+map_weights.csv: 400行 × 7列
+
+20×20 = 400個のニューロン
+各ニューロンが7次元空間のどこに位置しているかをベクトルで保持
+expectancy.csv: 400行 × 1列
+
+同じ20×20グリッドの各セルに対応した「期待値」
+ニューロン①→期待値①、ニューロン②→期待値②...
+推論フロー：
+
+入力データ（7変数）が来る
+map_weightsから「どのニューロンが最も近いか」を探す（BMU = Best Matching Unit）
+そのニューロンのインデックスに対応する期待値をexpectancy.csvから読み出す
+その期待値を使ってトレード判定
+つまり：
+
+重みのグラフ（20×20）: 市場パターンの地図（7次元を2次元にマップ）
+期待値のグラフ（20×20）: その地図の各セルに「ここパターンの将来利益」というラベルを貼ったもの

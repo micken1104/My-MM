@@ -22,6 +22,33 @@
 
 using json = nlohmann::json;
 
+void initialize_files() {
+    // 開発時時間がかかるのでいったんコメントアウト　必要に応じて再度有効化
+    // data フォルダの CSV 削除
+    //if (std::filesystem::exists("data")) {
+    //    for (const auto& entry : std::filesystem::directory_iterator("data")) {
+    //        if (entry.path().extension() == ".csv") std::filesystem::remove(entry.path());
+    //    }
+    //}
+    // models フォルダの CSV 削除
+    //if (std::filesystem::exists("models")) {
+    //    for (const auto& entry : std::filesystem::directory_iterator("models")) {
+    //        if (entry.path().extension() == ".csv") std::filesystem::remove(entry.path());
+    //    }
+    //}
+    std::cout << "Logs and previous models cleared." << std::endl;
+}
+int count_csv_lines(std::string filename) {
+    if (!std::filesystem::exists(filename)) return 0;
+    try {
+        std::ifstream file(filename);
+        if (!file.is_open()) return 0;
+        return std::count(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>(), '\n');
+    } catch (...) {
+        return 0; // ファイルが使用中の場合は 0 を返して次のループで再トライ
+    }
+}
+
 int main() {
     // windows socketの初期化
     #ifdef _WIN32
@@ -48,6 +75,8 @@ int main() {
     
     std::mutex price_mutex;
     
+    // .csv初期化
+    initialize_files();
     // SOMモデル読み込み
     std::map<std::string, SOMEvaluator> som_models;
     for (const auto& symbol : symbols) {
@@ -59,32 +88,7 @@ int main() {
             prefix + "risk_map.csv"
         );
     }
-    
-    // 30分ごとにSOM再学習
-    std::thread training_thread([&symbols, &som_models, &price_mutex]() {
-        while (true) {        
-            for (const auto& symbol : symbols) {
-                std::string cmd = "C:\\Users\\MichihikoKubota\\Documents\\My-MM\\.venv\\Scripts\\python.exe train_som.py " + symbol;
-                int result = std::system(cmd.c_str());
-                if (result == 0){
-                    std::lock_guard<std::mutex> lock(price_mutex); // 推論中に読み替えないようロック
-                    std::string prefix = "models/" + symbol + "_";
-                    bool success = som_models[symbol].loadModel(
-                        prefix + "map_weights.csv",
-                        prefix + "expectancy.csv",  
-                        prefix + "scaling_params.csv",
-                        prefix + "risk_map.csv"
-                    );
-                    if (success) {
-                        std::cout << "Model reloaded for " << symbol << std::endl;
-                    }
-                }
-            }
-            std::this_thread::sleep_for(std::chrono::minutes(30));
-        }
-    });
-    training_thread.detach();
-    
+
     // WebSocket 接続
     ix::WebSocket webSocket;
     std::string url = "wss://stream.binance.com/stream?streams="; // ポート9443を外し、/streamを明示
@@ -99,7 +103,8 @@ int main() {
     }
     
     webSocket.setUrl(url);
-    
+    // トレード開始フラグ
+    bool trading_enabled = false;
     // WebSocket メッセージ受信
     webSocket.setOnMessageCallback([&](const ix::WebSocketMessagePtr& msg) {
         if (msg->type == ix::WebSocketMessageType::Message) {
@@ -135,7 +140,8 @@ int main() {
                     double btc_price = prices.count(btc_symbol) ? prices[btc_symbol] : mid_price;
                     process_ws_data(symbol, imbalance, imbalance_change, total_depth, mid_price, btc_price, market_state);
                     
-                    if (prices.count(symbol) && prices.count(btc_symbol)) {
+                    // トレード開始時刻を過ぎていたらトレード判定を行う
+                    if (trading_enabled && prices.count(symbol) && prices.count(btc_symbol)) {
                         // SOMへの入力
                         std::vector<double> features = {
                             market_state[symbol].imbalance,
@@ -158,11 +164,86 @@ int main() {
     });
     
     webSocket.start();
-    std::this_thread::sleep_for(std::chrono::seconds(5));
+    std::cout << "Waiting for data to reach 500 lines..." << std::endl;
+    while (true) {
+        bool all_ready = true;
+        for (const auto& symbol : symbols) {
+            std::string filename = "data/" + symbol + "_market_data.csv";
+            int lines = count_csv_lines(filename);
+            if (lines < 1500) {
+                std::cout << "Waiting for " << symbol << ": " << lines << "/1500 lines collected." << std::endl;
+                all_ready = false;
+            }
+        }
+        if (all_ready) break;
+        std::this_thread::sleep_for(std::chrono::seconds(60)); // 60秒おきにチェック
+    }
+    // 行数満たした後、初回の学習を実行
+    std::cout << "Starting initial SOM training with collected data..." << std::endl;
+    for (const auto& symbol : symbols) {
+        std::cout << "Training " << symbol << "..." << std::endl;
+        std::string cmd = "C:\\Users\\MichihikoKubota\\Documents\\My-MM\\.venv\\Scripts\\python.exe train_som.py " + symbol;
+        int result = std::system(cmd.c_str());
+        
+        if (result == 0) {
+            std::lock_guard<std::mutex> lock(price_mutex);
+            std::string prefix = "models/" + symbol + "_";
+            bool success = som_models[symbol].loadModel(
+                prefix + "map_weights.csv",
+                prefix + "expectancy.csv",
+                prefix + "scaling_params.csv",
+                prefix + "risk_map.csv"
+            );
+            if (success) std::cout << "Model loaded for " << symbol << std::endl;
+        } else {
+            std::cerr << "Initial training failed for " << symbol << std::endl;
+        }
+    }
+    // 初期学習が終わったのでフラグをONにする
+    {
+        std::lock_guard<std::mutex> lock(price_mutex); // 全コアに対しメモリの同期
+        trading_enabled = true;
+        std::cout << "Warm-up complete. Trading enabled!" << std::endl;
+    }
+        
+    // 30分ごとにSOM再学習
+    std::thread training_thread([&symbols, &som_models, &price_mutex]() {
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::minutes(30)); 
+            for (const auto& symbol : symbols) {
+                std::string cmd = "C:\\Users\\MichihikoKubota\\Documents\\My-MM\\.venv\\Scripts\\python.exe train_som.py " + symbol;
+                int result = std::system(cmd.c_str());
+                if (result == 0){
+                    std::lock_guard<std::mutex> lock(price_mutex); // 推論中に読み替えないようロック
+                    std::string prefix = "models/" + symbol + "_";
+                    bool success = som_models[symbol].loadModel(
+                        prefix + "map_weights.csv",
+                        prefix + "expectancy.csv",  
+                        prefix + "scaling_params.csv",
+                        prefix + "risk_map.csv"
+                    );
+                    if (success) {
+                        std::cout << "Model reloaded for " << symbol << std::endl;
+                        // グラフのために学習完了ログを追記
+                        std::ofstream train_log("data/training_events.csv", std::ios::app);
+                        if (train_log.is_open()) {
+                            long long ts = std::chrono::duration_cast<std::chrono::seconds>(
+                                std::chrono::system_clock::now().time_since_epoch()).count();
+                            train_log << ts << "," << symbol << "\n";
+                            train_log.close();
+                        }
+                    }
+                }
+            }
+        }
+    });
+    training_thread.detach();
+    
     
     // メインループ
     while (true) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        // 1500行ためるため、0.5秒おきに
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
         {
             std::lock_guard<std::mutex> lock(price_mutex);
             check_and_close_trades(active_trades, prices);

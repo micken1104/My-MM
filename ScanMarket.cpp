@@ -50,7 +50,8 @@ double calculate_btc_correlation(const std::deque<double>& prices, const std::de
 // --- メインの保存処理 ---
 
 void save_market_data_to_csv(const std::string& symbol, double imbalance, double imbalance_change, 
-                             double total_depth, double current_price, double btc_price) {
+                             double total_depth, double current_price, double btc_price,
+                             double vol, double corr) {
     
     std::string filename = "data/" + symbol + "_market_data.csv";
     bool file_exists = std::filesystem::exists(filename);
@@ -58,25 +59,12 @@ void save_market_data_to_csv(const std::string& symbol, double imbalance, double
     
     if (!file.is_open()) return;
 
-    // 1. 履歴を更新
-    auto& metrics = market_history[symbol];
-    metrics.price_history.push_back(current_price);
-    metrics.btc_price_history.push_back(btc_price);
-    if (metrics.price_history.size() > metrics.max_history) {
-        metrics.price_history.pop_front();
-        metrics.btc_price_history.pop_front();
-    }
-
-    // 2. 指標を計算
-    double vol = calculate_volatility(metrics.price_history);
-    double corr = calculate_btc_correlation(metrics.price_history, metrics.btc_price_history);
-
-    // 3. ヘッダー（最初だけ）
+    // ヘッダー（最初だけ
     if (!file_exists) {
         file << "timestamp,symbol,imbalance,imbalance_change,total_depth,price,btc_price,volatility,btc_corr\n";
     }
 
-    // 4. 書き込み
+    // 書き込み
     long long ts = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -98,17 +86,33 @@ void process_ws_data(const std::string& symbol, double imbalance, double imbalan
     static std::map<std::string, std::chrono::steady_clock::time_point> last_save_times;
     auto now = std::chrono::steady_clock::now();
 
-    // 内部状態を更新
+    // 1. 履歴を更新（すべてのデータ受信時に実行）
+    auto& metrics = market_history[symbol];
+    metrics.price_history.push_back(current_price);
+    metrics.btc_price_history.push_back(btc_price);
+    if (metrics.price_history.size() > metrics.max_history) {
+        metrics.price_history.pop_front();
+        metrics.btc_price_history.pop_front();
+    }
+
+    // 2. 指標を計算して、market_state を更新
+    double current_vol = calculate_volatility(metrics.price_history);
+    double current_corr = calculate_btc_correlation(metrics.price_history, metrics.btc_price_history);
+    // 枚数でなくUSDT換算の厚みに変換
+    double depth_usdt = total_depth * current_price;
+
+    market_state[symbol].volatility = current_vol;
+    market_state[symbol].btc_corr = current_corr;
     market_state[symbol].imbalance = imbalance;
     market_state[symbol].diff = imbalance_change;
-    market_state[symbol].total_depth = total_depth;
+    market_state[symbol].total_depth = depth_usdt;
     market_state[symbol].last_price = current_price;
-    market_state[symbol].volatility = 0.0; // 一旦初期化（後で計算）
-    market_state[symbol].btc_corr = 0.0;   // 一旦初期化（後で計算）
 
     // 1秒に1回だけ保存する（ここですべての引数を渡す）
+    // すでに計算済みなので、vol や corr を直接渡せるように save_market_data_to_csv を改造するべきか
     if (now - last_save_times[symbol] >= std::chrono::seconds(1)) {
-        save_market_data_to_csv(symbol, imbalance, imbalance_change, total_depth, current_price, btc_price);
+        save_market_data_to_csv(symbol, imbalance, imbalance_change, depth_usdt, 
+                                current_price, btc_price, current_vol, current_corr);
         last_save_times[symbol] = now;
     }
 }
