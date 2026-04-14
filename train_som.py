@@ -32,8 +32,11 @@ target_symbol = sys.argv[1]
 support_symbol = 'BTCUSDT'
 
 # ==================== 2. ファイル名の準備 ====================
-data_dir = "data"
-models_dir = "models"
+data_dir = "data/current"
+models_dir = "models/current"
+
+os.makedirs(data_dir, exist_ok=True)
+os.makedirs(models_dir, exist_ok=True)
 
 target_market_path = f"{data_dir}/{target_symbol}_market_data.csv"
 support_market_path = f"{data_dir}/{support_symbol}_market_data.csv"
@@ -103,18 +106,26 @@ features = [
     'btc_corr'        # 追加：BTCとの連動性
 ]
 
-# 最新のデータを使用
-working_df = combined_df.tail(30000).copy()
+# 最新30000行を使い、時系列で train/validation を 80/20 分割
+working_df = combined_df.tail(30000).copy().reset_index(drop=True)
+split_idx = int(len(working_df) * 0.8)
+train_base_df = working_df.iloc[:split_idx].copy()
+valid_df = working_df.iloc[split_idx:].copy()
 
-# データテーブルの構築（最新30000行を使用）
-feature_data = working_df[features].reset_index(drop=True)
+# 直近10000行を2倍で追加して、学習データを時系列加重
+recent_n = min(10000, len(train_base_df))
+recent_df = train_base_df.tail(recent_n).copy()
+weighted_train_df = pd.concat([train_base_df, recent_df], ignore_index=True)
 
-# インバランス変化を疑似価格変動として使用
-price_changes = working_df['future_pnl'].values * 1000
+train_feature_data = weighted_train_df[features].reset_index(drop=True)
+train_price_changes = weighted_train_df['future_pnl'].values * 1000
+valid_feature_data = valid_df[features].reset_index(drop=True)
+valid_price_changes = valid_df['future_pnl'].values * 1000
 
 # ==================== 8. 特徴量の正規化 ====================
 scaler = MinMaxScaler()
-data_scaled = scaler.fit_transform(feature_data)
+data_scaled = scaler.fit_transform(train_feature_data)
+valid_scaled = scaler.transform(valid_feature_data) if len(valid_feature_data) > 0 else np.empty((0, len(features)))
 
 # ==================== 9. SOMの初期化 ====================
 width = SOM_WIDTH
@@ -135,7 +146,9 @@ grid_coords = np.stack([x_coord.flatten(), y_coord.flatten()], axis=1)
 
 # ==================== 10. SOM学習ループ ====================
 print(f"訓練開始: {target_symbol}")
-print(f"  - データサイズ: {len(feature_data)} 行")
+print(f"  - 学習データ(加重後): {len(train_feature_data)} 行")
+print(f"  - 検証データ: {len(valid_feature_data)} 行")
+print(f"  - 直近加重: +{recent_n} 行 (2x)")
 print(f"  - 特徴量: {features}")
 print(f"  - SOMグリッド: {width} x {height} = {neurons_count} ニューロン")
 print(f"  - エポック: {EPOCHS}")
@@ -174,8 +187,8 @@ all_winners = np.argmin(all_distances, axis=0)
 # ニューロンごとに対応する価格変動をグループ化
 node_pnl = [[] for _ in range(neurons_count)]
 for data_idx, neuron_idx in enumerate(all_winners):
-    if data_idx < len(price_changes):
-        node_pnl[neuron_idx].append(price_changes[data_idx])
+    if data_idx < len(train_price_changes):
+        node_pnl[neuron_idx].append(train_price_changes[data_idx])
 
 # 期待値とリスク（標準偏差）を計算
 expectancy_map = np.zeros(neurons_count)
@@ -188,7 +201,46 @@ for neuron_idx in range(neurons_count):
         if len(pnl_values) > 1:
             risk_map[neuron_idx] = np.std(pnl_values)
 
-# ==================== 12. モデルの保存 ====================
+# ==================== 12. ホールドアウト検証 ====================
+validation_rows = []
+warning_count = 0
+
+if len(valid_scaled) > 0:
+    valid_distances = np.linalg.norm(som_weights[:, np.newaxis] - valid_scaled, axis=2)
+    valid_winners = np.argmin(valid_distances, axis=0)
+
+    val_node_pnl = [[] for _ in range(neurons_count)]
+    for data_idx, neuron_idx in enumerate(valid_winners):
+        if data_idx < len(valid_price_changes):
+            val_node_pnl[neuron_idx].append(valid_price_changes[data_idx])
+
+    for neuron_idx in range(neurons_count):
+        pnl_values = val_node_pnl[neuron_idx]
+        if len(pnl_values) == 0:
+            continue
+
+        train_exp = float(expectancy_map[neuron_idx])
+        train_risk = float(risk_map[neuron_idx])
+        val_exp = float(np.mean(pnl_values))
+        val_risk = float(np.std(pnl_values)) if len(pnl_values) > 1 else 0.0
+        exp_gap = abs(train_exp - val_exp)
+
+        warn = exp_gap > max(0.2, train_risk * 2.0)
+        if warn:
+            warning_count += 1
+
+        validation_rows.append({
+            'node': neuron_idx,
+            'val_count': len(pnl_values),
+            'train_expectancy': train_exp,
+            'val_expectancy': val_exp,
+            'expectancy_gap_abs': exp_gap,
+            'train_risk': train_risk,
+            'val_risk': val_risk,
+            'warn_gap': int(warn)
+        })
+
+# ==================== 13. モデルの保存 ====================
 os.makedirs(models_dir, exist_ok=True)
 prefix = f"{models_dir}/{target_symbol}_"
 
@@ -209,9 +261,21 @@ scaling_params = pd.DataFrame({
 })
 scaling_params.to_csv(f"{prefix}scaling_params.csv", index=False)
 
-# ==================== 13. 完了メッセージ ====================
+validation_report_path = f"{prefix}validation_report.csv"
+if validation_rows:
+    validation_report_df = pd.DataFrame(validation_rows).sort_values('expectancy_gap_abs', ascending=False)
+    validation_report_df.to_csv(validation_report_path, index=False)
+else:
+    pd.DataFrame(columns=[
+        'node', 'val_count', 'train_expectancy', 'val_expectancy',
+        'expectancy_gap_abs', 'train_risk', 'val_risk', 'warn_gap'
+    ]).to_csv(validation_report_path, index=False)
+
+# ==================== 14. 完了メッセージ ====================
 print(f"\n✅ {target_symbol} の訓練が完了しました")
-print(f"  - 処理した市場データ: {len(feature_data)} 行")
+print(f"  - 処理した学習データ: {len(train_feature_data)} 行")
+print(f"  - 検証行数: {len(valid_feature_data)} 行")
+print(f"  - 検証警告ノード数: {warning_count}")
 print(f"  - 期待値が正（有利）なニューロン: {np.sum(expectancy_map > 0)} 個")
 print(f"  - 期待値の平均: {np.mean(expectancy_map):.6f}")
 print(f"  - 保存されたファイル:")
@@ -219,3 +283,7 @@ print(f"    - {prefix}map_weights.csv (SOM重み)")
 print(f"    - {prefix}expectancy.csv (期待値マップ)")
 print(f"    - {prefix}risk_map.csv (リスクマップ)")
 print(f"    - {prefix}scaling_params.csv (正規化パラメータ)")
+print(f"    - {validation_report_path} (ホールドアウト検証)")
+
+if warning_count > 0:
+    print(f"⚠️ 警告: train/validation 乖離が大きいノードが {warning_count} 個あります")

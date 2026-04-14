@@ -1,6 +1,25 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
+DATA_DIR = './data/current'
+
+
+def load_all_history(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path, header=None)
+    if df.empty:
+        return df
+
+    if df.shape[1] >= 10:
+        df = df.iloc[:, :10].copy()
+        df.columns = ["ts", "symbol", "side", "entry", "exit", "gross_pnl", "net_pnl", "total_net_pnl", "reason", "hold_sec"]
+    elif df.shape[1] >= 4:
+        df = df.iloc[:, :4].copy()
+        df.columns = ["ts", "symbol", "pnl", "total_pnl"]
+    else:
+        raise ValueError("Unsupported all_trades_history.csv format")
+
+    return df
+
 plt.figure(figsize=(14, 7))
 
 symbols = ["ATOMUSDT", "ETHUSDT", "SOLUSDT", "BTCUSDT"]
@@ -8,16 +27,20 @@ colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
 
 # 1. 全体の開始時間を取得し、全体の累積PnLを計算（ループの外で1回だけ行う）
 try:
-    all_csv = pd.read_csv('./data/all_trades_history.csv', header=None)
-    start_ts = all_csv[0].iloc[0]  
-    
-    # Python側で全履歴の単発PnL(2列目)を累計する
-    total_pnl_recalculated = all_csv[2].cumsum()
-    
-    # 全体の太い黒線をプロット
-    plt.plot(all_csv[0] - start_ts, total_pnl_recalculated, label='TOTAL PnL (Recalculated)', 
+    all_csv = load_all_history(f'{DATA_DIR}/all_trades_history.csv')
+    if all_csv.empty:
+        raise ValueError('all_trades_history.csv is empty')
+
+    start_ts = all_csv['ts'].iloc[0]
+
+    if 'net_pnl' in all_csv.columns:
+        total_pnl_recalculated = all_csv['net_pnl'].cumsum()
+    else:
+        total_pnl_recalculated = all_csv['pnl'].cumsum()
+
+    plt.plot(all_csv['ts'] - start_ts, total_pnl_recalculated, label='TOTAL PnL (Recalculated)',
              color='black', linewidth=3, zorder=10)
-    
+
     print(f"Total Cumulative PnL recalculated: {total_pnl_recalculated.iloc[-1]:.3f}%")
 except Exception as e:
     print(f"トレード履歴の読み込みに失敗しました: {e}")
@@ -28,18 +51,27 @@ if start_ts is not None:
     for symbol, color in zip(symbols, colors):
         # --- 個別銘柄のトレード損益（点線） ---
         try:
-            df_t = pd.read_csv(f'./data/{symbol}_trades.csv', header=None)
-            df_t = df_t[df_t[0] >= start_ts]
-            
-            # df_t の 4列目（単発PnL）を cumsum() する
-            plt.plot(df_t[0] - start_ts, df_t[4].cumsum(), 
+            df_t = pd.read_csv(f'{DATA_DIR}/{symbol}_trades.csv', header=None)
+            if df_t.shape[1] >= 12:
+                df_t = df_t.iloc[:, :12].copy()
+                df_t.columns = ["ts", "symbol", "entry", "exit", "pnl", "reason", "side", "gross_pnl", "net_pnl", "hold_sec", "tp_rate", "sl_rate"]
+                pnl_col = "net_pnl"
+            elif df_t.shape[1] >= 6:
+                df_t = df_t.iloc[:, :6].copy()
+                df_t.columns = ["ts", "symbol", "entry", "exit", "pnl", "reason"]
+                pnl_col = "pnl"
+            else:
+                raise ValueError("unsupported trade CSV format")
+
+            df_t = df_t[df_t['ts'] >= start_ts]
+            plt.plot(df_t['ts'] - start_ts, pd.to_numeric(df_t[pnl_col], errors='coerce').cumsum(),
                      linestyle='--', color=color, alpha=0.8, label=f'{symbol} Strategy')
         except: 
             pass
 
         # --- 各銘柄の市場価格（実線） ---
         try:
-            df_m = pd.read_csv(f'./data/{symbol}_market_data.csv')
+            df_m = pd.read_csv(f'{DATA_DIR}/{symbol}_market_data.csv')
             df_m = df_m[df_m['timestamp'] >= start_ts].reset_index(drop=True)
             if not df_m.empty:
                 base_price = df_m['price'].iloc[0]

@@ -5,11 +5,48 @@
 #include <map>
 #include <iomanip>
 #include <chrono>
+#include <algorithm>
+#include <ctime>
+#include <filesystem>
+#include <vector>
 
 static double total_pnl_pct = 0.0; // 通算損益（％）
 static int win_count = 0;
 static int loss_count = 0;
 std::map<std::string, std::chrono::steady_clock::time_point> last_exit_times;
+
+namespace {
+constexpr double kFeePerSidePct = 0.04;
+constexpr double kRoundTripFeePct = kFeePerSidePct * 2.0;
+constexpr int kMaxHoldSec = 180;
+
+int current_utc_hour() {
+    std::time_t now_time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm utc_tm{};
+#ifdef _WIN32
+    gmtime_s(&utc_tm, &now_time);
+#else
+    gmtime_r(&now_time, &utc_tm);
+#endif
+    return utc_tm.tm_hour;
+}
+
+bool is_allowed_entry_hour(const std::string& symbol, int hour_utc) {
+    static const std::map<std::string, std::vector<int>> kAllowedHours = {
+        {"ATOMUSDT", {2, 13, 15}},
+        {"BTCUSDT", {9, 16, 20}},
+        {"ETHUSDT", {7, 15, 19}},
+        {"SOLUSDT", {0, 8, 9}},
+    };
+
+    auto it = kAllowedHours.find(symbol);
+    if (it == kAllowedHours.end()) {
+        return true;
+    }
+    const auto& hours = it->second;
+    return std::find(hours.begin(), hours.end(), hour_utc) != hours.end();
+}
+} // namespace
 
 bool is_market_crashing(const MarketState& state) {
     // BTCの相関が高く、かつBTCに対して負の方向への勢いが強い場合を「地合い悪化」とみなす
@@ -30,16 +67,24 @@ void execute_trade(double expectancy, double current_price, std::string symbol,
         if (elapsed < 30) return; // 30秒以内ならスキップ
     }
     
-    // 期待値が高い場合のみトレード
-    // ボラティリティが高い時だけ、期待値のハードルを下げる（チャンスが多いので）
+    int hour_utc = current_utc_hour();
+    if (!is_allowed_entry_hour(symbol, hour_utc)) {
+        return;
+    }
+
+    // ボラ高ではやや閾値を緩め、ボラ低では厳しめにする
     double dynamic_threshold = (state.volatility > 0.001) ? 0.15 : 0.2;
     // 地合いフィルターの適用
     if (is_market_crashing(state)) {
         dynamic_threshold += 0.15; // クラッシュ時は 0.3 ~ 0.35 までハードルを上げる
         // もしくは return; で完全に止めても良い
     }
-    if (expectancy <= dynamic_threshold) {
-        // std::cout << symbol << " Skip: Expectancy low (" << expectancy << ")" << std::endl;
+
+    // SHORTエントリー閾値（要求仕様）
+    const double short_threshold = (state.volatility > 0.001) ? -0.30 : -0.45;
+    const bool should_long = expectancy > dynamic_threshold;
+    const bool should_short = expectancy < short_threshold;
+    if (!should_long && !should_short) {
         return;
     }
 
@@ -69,12 +114,19 @@ void execute_trade(double expectancy, double current_price, std::string symbol,
     // 新しいトレードを作成
     TradeData new_trade;
     new_trade.symbol = symbol;
+    new_trade.side = should_short ? "SHORT" : "LONG";
     new_trade.entry_price = current_price;
+    new_trade.tp_rate = std::clamp(state.volatility * 2.0, 0.0010, 0.0050);
+    new_trade.sl_rate = std::clamp(state.volatility * 1.5, 0.0008, 0.0035);
     new_trade.entry_imbalance = local_risk;
-    new_trade.entry_time = std::chrono::steady_clock::now();
+    new_trade.entry_time = now;
     
     pending_trades.push_back(new_trade);
-    std::cout << "BUY " << symbol << " at " << current_price << std::endl;
+    std::cout << "OPEN " << new_trade.side << " " << symbol
+              << " at " << current_price
+              << " | TP=" << std::fixed << std::setprecision(3) << (new_trade.tp_rate * 100.0) << "%"
+              << " | SL=" << (new_trade.sl_rate * 100.0) << "%"
+              << std::endl;
 }
 
 void check_and_close_trades(std::vector<TradeData>& active_trades, 
@@ -88,7 +140,12 @@ void check_and_close_trades(std::vector<TradeData>& active_trades,
         }
         
         double current_price = current_prices[it->symbol];
-        double pnl_ratio = (current_price - it->entry_price) / it->entry_price;
+
+        const bool is_short = (it->side == "SHORT");
+        double gross_pnl_pct = is_short
+            ? ((it->entry_price - current_price) / it->entry_price) * 100.0
+            : ((current_price - it->entry_price) / it->entry_price) * 100.0;
+        double pnl_ratio = gross_pnl_pct / 100.0;
 
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - it->entry_time).count();
         
@@ -96,27 +153,28 @@ void check_and_close_trades(std::vector<TradeData>& active_trades,
         bool should_close = false;
         std::string reason = "";
 
-        if (pnl_ratio >= 0.0012) {        // 0.12% 利益で利確
+        if (pnl_ratio >= it->tp_rate) {
             should_close = true;
             reason = "TP (Take Profit)";
-        } else if (pnl_ratio <= -0.0015) { // 0.15% 損失で損切
+        } else if (pnl_ratio <= -it->sl_rate) {
             should_close = true;
             reason = "SL (Stop Loss)";
-        } else if (elapsed >= 45) {       // 45秒経過でタイムアップ,30秒たっても離隔できないならそのインバランスはもうすでに解消か予測外れ
+        } else if (elapsed >= kMaxHoldSec) {
             should_close = true;
             reason = "Time Up";
         }
 
         if (should_close) {
-            double pnl_pct = pnl_ratio * 100.0;
-            total_pnl_pct += pnl_pct; // 合計に加算
-            if (pnl_pct > 0) win_count++;
-            else if (pnl_pct < 0) loss_count++;
+            double net_pnl_pct = gross_pnl_pct - kRoundTripFeePct;
+            total_pnl_pct += net_pnl_pct;
+            if (net_pnl_pct > 0) win_count++;
+            else if (net_pnl_pct < 0) loss_count++;
 
             // コンソールに決済ログを表示
-            std::cout << "SELL [" << reason << "] " << it->symbol 
+            std::cout << "CLOSE " << it->side << " [" << reason << "] " << it->symbol 
                     << " at " << current_price 
-                    << " | PnL: " << std::fixed << std::setprecision(3) << pnl_pct << "%" 
+                    << " | Gross: " << std::fixed << std::setprecision(3) << gross_pnl_pct << "%"
+                    << " | Net: " << net_pnl_pct << "%"
                     << " | Hold: " << elapsed << "s" << std::endl;
             // 画面に「現在の全成績」を表示
             std::cout << "========== WALLET STATS ==========" << std::endl;
@@ -125,16 +183,31 @@ void check_and_close_trades(std::vector<TradeData>& active_trades,
             std::cout << "==================================" << std::endl;
             // CSVに保存
             // 銘柄別CSVの下に、共通ログも追記する
-            std::ofstream all_file("data/all_trades_history.csv", std::ios::app);
-            std::string filename = "data/" + it->symbol + "_trades.csv";
+            const std::string all_filename = "data/current/all_trades_history.csv";
+            bool all_exists = std::filesystem::exists(all_filename);
+            std::filesystem::create_directories("data/current");
+            std::ofstream all_file(all_filename, std::ios::app);
+            std::string filename = "data/current/" + it->symbol + "_trades.csv";
+            bool symbol_exists = std::filesystem::exists(filename);
             std::ofstream file(filename, std::ios::app);
-            if (file.is_open()) {
+            if (file.is_open() && all_file.is_open()) {
                 long long ts = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
+                if (!symbol_exists || std::filesystem::file_size(filename) == 0) {
+                    file << "ts,symbol,entry,exit,pnl,reason,side,gross_pnl,net_pnl,hold_sec,tp_rate,sl_rate\n";
+                }
+                if (!all_exists || std::filesystem::file_size(all_filename) == 0) {
+                    all_file << "ts,symbol,side,entry,exit,gross_pnl,net_pnl,total_net_pnl,reason,hold_sec\n";
+                }
+
                 file << ts << "," << it->symbol << "," << it->entry_price << "," 
-                    << current_price << "," << pnl_pct << "," << reason << "\n";
+                    << current_price << "," << net_pnl_pct << "," << reason << ","
+                    << it->side << "," << gross_pnl_pct << "," << net_pnl_pct << ","
+                    << elapsed << "," << it->tp_rate << "," << it->sl_rate << "\n";
                 file.close();
-                all_file << ts << "," << it->symbol << "," << pnl_pct << "," << total_pnl_pct << "\n";
+                all_file << ts << "," << it->symbol << "," << it->side << "," << it->entry_price << ","
+                         << current_price << "," << gross_pnl_pct << "," << net_pnl_pct << ","
+                         << total_pnl_pct << "," << reason << "," << elapsed << "\n";
                 all_file.close();
             }
 

@@ -13,10 +13,12 @@
 #include <mutex>
 #include <filesystem>
 #include <fstream>
+#include <cstdlib>
 
 
 #ifdef _WIN32
 #include <winsock2.h>
+#include <windows.h>
 #pragma comment(lib, "ws2_32.lib")
 #endif
 
@@ -49,6 +51,49 @@ int count_csv_lines(std::string filename) {
     }
 }
 
+int run_command(const std::string& command) {
+#ifdef _WIN32
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&si, sizeof(si));
+    ZeroMemory(&pi, sizeof(pi));
+    si.cb = sizeof(si);
+
+    std::vector<char> cmdline(command.begin(), command.end());
+    cmdline.push_back('\0');
+
+    BOOL ok = CreateProcessA(
+        nullptr,
+        cmdline.data(),
+        nullptr,
+        nullptr,
+        FALSE,
+        0,
+        nullptr,
+        nullptr,
+        &si,
+        &pi
+    );
+
+    if (!ok) {
+        std::cerr << "CreateProcess failed (" << GetLastError() << "): " << command << std::endl;
+        return -1;
+    }
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exit_code = 1;
+    if (!GetExitCodeProcess(pi.hProcess, &exit_code)) {
+        exit_code = 1;
+    }
+
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return static_cast<int>(exit_code);
+#else
+    return std::system(command.c_str());
+#endif
+}
+
 int main() {
     // windows socketの初期化
     #ifdef _WIN32
@@ -59,8 +104,38 @@ int main() {
         }
     #endif
 
-    std::filesystem::create_directories("data");
-    std::filesystem::create_directories("models");
+    std::filesystem::create_directories("data/current");
+    std::filesystem::create_directories("models/current");
+
+    const std::string kRepoRoot = "C:\\Users\\MichihikoKubota\\Documents\\My-MM";
+    const std::string kCpuPython = kRepoRoot + "\\.venv\\Scripts\\python.exe";
+    const std::string kCpuTrainer = kRepoRoot + "\\train_som.py";
+
+    auto build_train_command = [&](const std::string& symbol) -> std::string {
+        if (!std::filesystem::exists(kCpuPython)) {
+            std::cerr << "CPU python executable not found: " << kCpuPython << std::endl;
+            return "";
+        }
+
+        if (!std::filesystem::exists(kCpuTrainer)) {
+            std::cerr << "CPU trainer script not found: " << kCpuTrainer << std::endl;
+            return "";
+        }
+
+        #ifdef _WIN32
+        _putenv_s("SOM_CUDA_DEVICE", "");
+        #endif
+
+        std::string cmd = "\"" + kCpuPython + "\" \"" + kCpuTrainer + "\" " + symbol;
+        std::cout << "Train cmd: " << cmd << std::endl;
+        return cmd;
+    };
+
+    try {
+        std::filesystem::current_path(kRepoRoot);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to set working directory to repo root: " << e.what() << std::endl;
+    }
 
     // 銘柄リスト
     std::vector<std::string> symbols = {"ATOMUSDT", "ETHUSDT", "SOLUSDT", "BTCUSDT"};
@@ -80,7 +155,7 @@ int main() {
     // SOMモデル読み込み
     std::map<std::string, SOMEvaluator> som_models;
     for (const auto& symbol : symbols) {
-        std::string prefix = "models/" + symbol + "_";
+        std::string prefix = "models/current/" + symbol + "_";
         som_models[symbol].loadModel(
             prefix + "map_weights.csv",
             prefix + "expectancy.csv",
@@ -168,7 +243,7 @@ int main() {
     while (true) {
         bool all_ready = true;
         for (const auto& symbol : symbols) {
-            std::string filename = "data/" + symbol + "_market_data.csv";
+            std::string filename = "data/current/" + symbol + "_market_data.csv";
             int lines = count_csv_lines(filename);
             if (lines < 1500) {
                 std::cout << "Waiting for " << symbol << ": " << lines << "/1500 lines collected." << std::endl;
@@ -180,42 +255,62 @@ int main() {
     }
     // 行数満たした後、初回の学習を実行
     std::cout << "Starting initial SOM training with collected data..." << std::endl;
+    bool initial_training_ok = true;
     for (const auto& symbol : symbols) {
         std::cout << "Training " << symbol << "..." << std::endl;
-        std::string cmd = "C:\\Users\\MichihikoKubota\\Documents\\My-MM\\.venv\\Scripts\\python.exe train_som.py " + symbol;
-        int result = std::system(cmd.c_str());
+        std::string cmd = build_train_command(symbol);
+        if (cmd.empty()) {
+            std::cerr << "Training command could not be built. Check Python environments and trainer scripts." << std::endl;
+            initial_training_ok = false;
+            continue;
+        }
+        int result = run_command(cmd);
         
         if (result == 0) {
             std::lock_guard<std::mutex> lock(price_mutex);
-            std::string prefix = "models/" + symbol + "_";
+            std::string prefix = "models/current/" + symbol + "_";
             bool success = som_models[symbol].loadModel(
                 prefix + "map_weights.csv",
                 prefix + "expectancy.csv",
                 prefix + "scaling_params.csv",
                 prefix + "risk_map.csv"
             );
-            if (success) std::cout << "Model loaded for " << symbol << std::endl;
+            if (success) {
+                std::cout << "Model loaded for " << symbol << std::endl;
+            } else {
+                std::cerr << "Model load failed for " << symbol << std::endl;
+                initial_training_ok = false;
+            }
         } else {
             std::cerr << "Initial training failed for " << symbol << std::endl;
+            initial_training_ok = false;
         }
     }
     // 初期学習が終わったのでフラグをONにする
     {
         std::lock_guard<std::mutex> lock(price_mutex); // 全コアに対しメモリの同期
-        trading_enabled = true;
-        std::cout << "Warm-up complete. Trading enabled!" << std::endl;
+        trading_enabled = initial_training_ok;
+        if (trading_enabled) {
+            std::cout << "Warm-up complete. Trading enabled!" << std::endl;
+        } else {
+            std::cerr << "Warm-up incomplete. Trading remains disabled until models are trained successfully." << std::endl;
+        }
     }
         
     // 30分ごとにSOM再学習
-    std::thread training_thread([&symbols, &som_models, &price_mutex]() {
+    std::thread training_thread([&symbols, &som_models, &price_mutex, &build_train_command]() {
         while (true) {
             std::this_thread::sleep_for(std::chrono::minutes(30)); 
             for (const auto& symbol : symbols) {
-                std::string cmd = "C:\\Users\\MichihikoKubota\\Documents\\My-MM\\.venv\\Scripts\\python.exe train_som.py " + symbol;
-                int result = std::system(cmd.c_str());
+                std::string cmd = build_train_command(symbol);
+                if (cmd.empty()) {
+                    std::cerr << "Periodic training command could not be built. Skipping " << symbol << std::endl;
+                    continue;
+                }
+                int result = run_command(cmd);
                 if (result == 0){
                     std::lock_guard<std::mutex> lock(price_mutex); // 推論中に読み替えないようロック
-                    std::string prefix = "models/" + symbol + "_";
+                    std::string prefix = "models/current/" + symbol + "_";
                     bool success = som_models[symbol].loadModel(
                         prefix + "map_weights.csv",
                         prefix + "expectancy.csv",  
@@ -225,7 +320,7 @@ int main() {
                     if (success) {
                         std::cout << "Model reloaded for " << symbol << std::endl;
                         // グラフのために学習完了ログを追記
-                        std::ofstream train_log("data/training_events.csv", std::ios::app);
+                        std::ofstream train_log("data/current/training_events.csv", std::ios::app);
                         if (train_log.is_open()) {
                             long long ts = std::chrono::duration_cast<std::chrono::seconds>(
                                 std::chrono::system_clock::now().time_since_epoch()).count();

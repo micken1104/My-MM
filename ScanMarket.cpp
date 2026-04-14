@@ -53,8 +53,9 @@ void save_market_data_to_csv(const std::string& symbol, double imbalance, double
                              double total_depth, double current_price, double btc_price,
                              double vol, double corr) {
     
-    std::string filename = "data/" + symbol + "_market_data.csv";
+    std::string filename = "data/current/" + symbol + "_market_data.csv";
     bool file_exists = std::filesystem::exists(filename);
+    std::filesystem::create_directories("data/current");
     std::ofstream file(filename, std::ios::app);
     
     if (!file.is_open()) return;

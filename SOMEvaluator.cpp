@@ -98,6 +98,14 @@ SOMResult SOMEvaluator::getPrediction(const std::vector<double>& raw_data) {
     double exp = expectancy_map[best_idx];
     double risk = (best_idx < (int)risk_map.size()) ? risk_map[best_idx] : 0.05;
 
+    const double safe_risk = std::max(risk, 1e-9);
+    const double exp_risk_ratio = std::abs(exp) / safe_risk;
+
+    // リスクが高すぎる、または期待値/リスク比が弱いノードは取引しない
+    if (risk >= 0.15 || exp_risk_ratio < 2.0) {
+        return {0.0, risk};
+    }
+
     return {exp, risk};
 }
 

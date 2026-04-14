@@ -1,191 +1,238 @@
-# SOM（自己組織化マップ）を使った仮想トレードボット
+# SOM仮想トレードボット README
 
-リアルタイムのオーダーブックのインバランスを利用して、機械学習モデル（SOM）により自動で仮想ポジションを売買するトレードボットです。
+このプロジェクトは、Binanceの板情報（bookTicker）を使って、SOM（自己組織化マップ）で短期の価格優位性を推定し、仮想売買を行うシステムです。
 
-## 動作原理
+「WebSocket -> 特徴量計算 -> SOM推論 -> 執行」という流れは維持したまま、以下を強化しています。
 
-1. **WebSocket接続**: Binanceのストリームに接続し、リアルタイムのオーダーブック（bookTicker）データを4銘柄（ATOMUSDT、ETHUSDT、SOLUSDT、BTCUSDT）から1秒ごとに取得します。
+- LONG/SHORTの両建て対応
+- ボラティリティ適応TP/SL
+- 手数料込みPnL評価
+- 時間帯フィルター
+- risk_mapを使ったリスク制御
+- 学習データの時系列加重
+- ホールドアウト検証レポート
 
-2. **市場データ収集**: ビッド・アスク価格とボリュームから以下の7つの特徴量を計算して記録します：
-   - **Imbalance**: (買い板厚み - 売り板厚み) / 合計厚み
-   - **Imbalance Change**: 前回との不均衡の変化
-   - **Total Depth**: オーダーブックの総厚み
-   - **Volatility**: 過去60秒間の価格の標準偏差（相場の荒れ具合）
-   - **BTC Correlation**: BTCとの連動性（相対的な騰落率の比）
+## 1. まず全体像
 
-3. **SOM予測**: 収集したデータをSOMモデルに入力し、各市場パターンの将来30秒間の期待利益を生成します。
+### 1.1 何をしているボットか
 
-4. **フィルター**:
-   - **期待値フィルター**: ボラティリティ > 0.001の場合は期待値 > 0.30、それ以外は期待値 > 0.45
-   - **板厚みフィルター**: total_depth < 10.0 の場合は取引しない
-   - **ボラティリティフィルター**: volatility < 0.0001 の場合は取引しない
-   - **ポジション管理**: 同一銘柄での複数ポジションは保有しない
+1. Binanceから4銘柄（ATOMUSDT, BTCUSDT, ETHUSDT, SOLUSDT）のbookTickerを受信
+2. 1秒ごとに市場特徴量を更新・保存
+3. SOMで「今の状態に似た過去パターン」を探し、期待値を取得
+4. フィルターを通過したら仮想ポジションを建てる
+5. TP/SL/Time Upで決済し、CSVに記録
+6. 30分ごとに再学習し、モデルをリロード
 
-5. **仮想取引**:
-   - フィルターを通過した場合、仮想LONGポジションを建てる
-   - **利確**: 0.2% の利益で自動決済
-   - **損切**: 0.15% の損失で自動決済
-   - **タイムアップ**: 60秒経過で強制決済
-   - **クールダウン**: 決済後30秒間は同一銘柄のエントリー禁止
+### 1.2 データフロー
 
-6. **モデル再学習**: 30分ごとに収集した市場データ（最新30,000行）を使用して、Pythonスクリプトで自動的にSOMモデルを再学習します。
-
-## データフロー
-
-```
-WebSocket (Binance) → bookTicker ストリーム
-    ↓
-7つの特徴量を計算 (imbalance, diff, depth, vol, btc_corr)
-    ↓
-市場データを保存 (1秒ごと) → data/*_market_data.csv
-    ↓
-SOMモデルをロード → BMU特定 → 期待値を予測
-    ↓
-フィルター判定 → 期待値 + 板厚み + ボラティリティ + ポジション確認
-    ↓
-条件満たす → 仮想LONGポジション建て
-    ↓
-60秒以内に 0.2% 利確 or 0.15% 損切 or タイムアップ → 強制決済
-    ↓
-全取引結果を保存 → data/*_trades.csv + data/all_trades_history.csv
-    ↓
-30分ごと → Python で自動 SOM 再学習
+```text
+WebSocket (Binance bookTicker)
+        -> 特徴量計算
+    -> data/current/*_market_data.csv
+        -> SOM推論 (expectancy + risk)
+        -> エントリー判定 (LONG / SHORT)
+        -> 決済判定 (TP / SL / Time Up)
+    -> data/current/*_trades.csv, data/current/all_trades_history.csv
+    -> 30分ごと再学習 (train_som.py)
 ```
 
-## 出力ファイル
+### 1.3 旧仕様との分離
 
-- **data/SYMBOL_market_data.csv**: SOM再学習用のオーダーブック不均衡データ（タイムスタンプ、シンボル、7つの特徴量）
-- **data/SYMBOL_trades.csv**: 銘柄別の仮想取引結果（タイムスタンプ、エントリー価格、クローズ価格、PnL%、決済理由）
-- **data/all_trades_history.csv**: 全銘柄の通算取引ログ（合計PnL%の推移）
+- 旧仕様の履歴は既存の `data/` と `models/` に残します
+- 現行仕様の出力先は `data/current/` と `models/current/` です
+- グラフ作成と分析スクリプトは、既定で `data/current/` を見るようにしています
+- 旧履歴を見たい場合は、旧ファイルをそのまま参照してください
 
-## 主要パラメータ
+## 2. LONGとSHORT（最重要）
 
-| パラメータ | 値 | 説明 |
-|-----------|-----|------|
-| **エントリー条件（期待値）** | 期待値 > 0.30（ボラティリティ高） or > 0.45（流動性低） | 動的な買いシグナル閾値 |
-| **利確条件** | 0.2% 利益 | 自動利益確定 |
-| **損切条件** | 0.15% 損失 | 自動損失確定 |
-| **最大保有時間** | 60秒 | タイムアップでの強制決済 |
-| **クールダウン期間** | 30秒 | 決済後の再エントリー禁止期間 |
-| **板厚みフィルター** | total_depth < 10.0 | 液動性不足で取引見送り |
-| **ボラティリティフィルター** | volatility < 0.0001 | 停滞時に取引見送り |
-| **訓練データ最小数** | 300行 | SOM学習に必要なデータサイズ |
-| **SOMグリッドサイズ** | 20 × 20 = 400ニューロン | マップの解像度 |
-| **学習エポック数** | 20回 | 再学習時の反復回数 |
-| **モデル再学習周期** | 30分ごと | 自動学習トリガー |
+金融では2方向のポジションが取れます。
 
-## セットアップ
+- LONG（買い）: 価格上昇で利益、下落で損失
+- SHORT（売り）: 価格下落で利益、上昇で損失
 
-### 前提条件
+このボットは現在、次の条件で両対応しています。
+
+- LONG: 期待値が正方向閾値を上回る
+- SHORT: 期待値が負方向閾値を下回る
+    - ボラ高: expectancy < -0.30
+    - ボラ低: expectancy < -0.45
+
+これにより、下落トレンド局面でも機会を拾えるようになり、市場の片側だけを見る問題を回避します。
+
+## 3. なぜTP/SLを「ボラティリティ×定数」で決めるのか
+
+## 3.1 直感
+
+ボラティリティ（標準偏差）は「その銘柄がどれくらい動くか」の尺度です。
+
+- 静かな相場（例: $\sigma=0.05\%$）でTPを固定0.2%にすると、到達しにくくTime Upが増える
+- 荒い相場（例: $\sigma=0.15\%$）なら0.2%は届きやすい
+
+固定TP/SLは「相場の今の動き」を無視するため、環境依存で機能不全になりやすいです。
+
+## 3.2 このボットの設定
+
+- $TP = \sigma \times 2.0$（ただし $0.10\% \le TP \le 0.50\%$）
+- $SL = \sigma \times 1.5$（ただし $0.08\% \le SL \le 0.35\%$）
+- 最大保有時間: 180秒
+
+実装上はクランプで暴走を抑えているため、異常に小さい/大きいTP/SLを防げます。
+
+## 3.3 統計的な見方（注意点付き）
+
+正規分布を仮定すると、
+
+- $\pm 1\sigma$ に約68%
+- $\pm 2\sigma$ に約95%
+
+が収まります。よって「何σを狙うか」で、到達頻度の目安を持てます。
+
+ただし実際の高頻度市場は完全な正規分布ではありません（裾が太い、非対称など）。
+したがって「厳密な確率」ではなく「比較可能な共通尺度」として使うのが実務的です。
+
+## 4. エントリー/決済ロジック
+
+## 4.1 エントリー前フィルター
+
+- クールダウン: 同銘柄は決済後30秒は再エントリー禁止
+- 板厚みフィルター: depthが薄すぎると見送り
+- 最低ボラフィルター: 凪相場を回避
+- 時間帯フィルター（UTC）:
+    - ATOMUSDT: 2, 13, 15時
+    - BTCUSDT: 9, 16, 20時
+    - ETHUSDT: 7, 15, 19時
+    - SOLUSDT: 0, 8, 9時
+- 1銘柄1ポジション
+
+## 4.2 決済条件
+
+- TP到達
+- SL到達
+- Time Up（180秒）
+
+LONG/SHORTは対称に実装されており、判定は以下です。
+
+- LONGの粗利益率: $(close-entry)/entry \times 100$
+- SHORTの粗利益率: $(entry-close)/entry \times 100$
+
+## 4.3 手数料込みPnL
+
+- 往復手数料: 0.04% + 0.04% = 0.08%
+- net_pnl = gross_pnl - 0.08
+
+CSVには `gross_pnl` と `net_pnl` の両方を記録し、実運用に近い評価ができます。
+
+## 5. SOM評価の考え方
+
+SOMの各ノードには次が保存されます。
+
+- expectancy_map: そのノードでの平均リターン
+- risk_map: そのノードでのリターン標準偏差
+
+推論時は、期待値だけでなくリスクも使って足切りします。
+
+- risk >= 0.15 なら見送り
+- |expectancy| / risk < 2.0 なら見送り
+
+この設計で「見かけ上の期待値が高いだけの不安定ノード」を避けます。
+
+## 6. 学習の改善点
+
+## 6.1 時系列加重
+
+学習データは最新30000行を使用し、そのうち直近10000行を追加複製（2倍重み）します。
+
+狙いは「古い地合いより最近の地合いを重視する」ことです。
+
+## 6.2 ホールドアウト検証
+
+- 時系列順に train 80% / validation 20% に分割
+- 各ノードで train期待値と validation期待値の乖離を計算
+- 乖離が大きいノードを警告
+- `models/SYMBOL_validation_report.csv` を出力
+
+これにより、再学習ごとに過学習気味のノードを監視できます。
+
+## 7. 出力ファイル
+
+- `data/current/SYMBOL_market_data.csv`
+    - timestamp, symbol, imbalance, imbalance_change, total_depth, price, btc_price, volatility, btc_corr
+- `data/current/SYMBOL_trades.csv`
+    - ts, symbol, entry, exit, pnl(net), reason, side, gross_pnl, net_pnl, hold_sec, tp_rate, sl_rate
+- `data/current/all_trades_history.csv`
+    - ts, symbol, side, entry, exit, gross_pnl, net_pnl, total_net_pnl, reason, hold_sec
+- `models/current/SYMBOL_validation_report.csv`
+    - ノードごとのtrain/validation乖離レポート
+
+## 8. セットアップ
+
+### 8.1 前提
+
 - Windows 10/11
-- Visual Studio Build Tools または Visual Studio Community
-- CMake 3.15 以上
-- Python 3.9 以上
+- Visual Studio Build Tools or Visual Studio Community
+- CMake
+- Python 3.9+
 
-### C++依存パッケージのインストール
+### 8.2 Python
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements-train.txt
+```
+
+### 8.3 学習スクリプト（CPU）
+
+この構成では `train_som.py` を使って CPU で学習します。
+`main.cpp` は `.venv\Scripts\python.exe` で `train_som.py` を実行します。
+
+### 8.4 C++依存（vcpkg）
+
 ```bash
 vcpkg install fmt nlohmann-json ixwebsocket
 ```
 
-### Python環境の構築
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install numpy pandas scikit-learn
-```
+### 8.5 ビルドと実行
 
-### ビルド
 ```bash
 cmake --build build --config Release
+build\Release\My-MM.exe
 ```
 
-### 実行
-```bash
-./build/Release/My-MM.exe
+### 8.6 インストール確認
+
+```powershell
+.venv\Scripts\python.exe -c "import numpy, pandas, sklearn; print('ok')"
 ```
 
-## プロジェクト構成
+`ok` が出れば学習環境は準備完了です。
 
-```
-.
-├── main.cpp                      # WebSocket接続、トレードループ、モデル再学習スレッド
-├── ScanMarket.cpp/h              # 市場データ収集＆計算処理
-├── ExecuteTrade.cpp/h            # トレード実行・決済ログ・統計管理
-├── SOMEvaluator.cpp/h            # SOM推論エンジン
-├── train_som.py                  # SOM自動再学習スクリプト
-├── CMakeLists.txt                # ビルド設定
-├── data/                         # 生成される市場データ・取引履歴
-│   ├── *_market_data.csv         # 特徴量（imbalance, volatility等）
-│   ├── *_trades.csv              # 各銘柄の取引結果
-│   └── all_trades_history.csv    # 全取引の通算成績
-└── models/                       # SOM学習済みモデル
-    ├── *_map_weights.csv         # SOMニューロンの重みベクトル（400行 × 7列）
-    ├── *_expectancy.csv          # 各ニューロンの期待値（400行）
-    ├── *_risk_map.csv            # 各ニューロンのリスク（400行）
-    └── *_scaling_params.csv      # 特徴量の正規化パラメータ
-```
+## 9. よくある詰まりポイント
 
-## SOM再学習メカニズム
+### 9.1 取引が出ない
 
-### データ集約
-- 各銘柄の市場データを1秒ごとに記録
-- 30分周期で過去30,000行のデータを使用してモデル再学習
+- 収集直後は学習データ不足
+- 時間帯フィルター外の時間に実行している
+- riskフィルターで落ちている
 
-### 特徴量
-1. **imbalance**: オーダーブック不均衡度（-1 ～ 1）
-2. **imbalance_change**: 前回との不均衡の変化
-3. **total_depth**: オーダーブックの総厚み
-4. **price**: 現在の中値
-5. **btc_price**: BTC価格（相関計算用）
-6. **volatility**: 過去60秒の価格変動率の標準偏差
-7. **btc_corr**: BTC連動性（相対騰落率）
+### 9.2 Time Upがまだ多い
 
-### 学習プロセス
-1. 日本時間で指定した各銘柄のCSVを読み込む
-2. BTCの時系列データとマージ（時刻ベースの直前値結合）
-3. 未来30秒間の価格変動を教師データとして準備
-4. 7つの特徴量を0-1の範囲に正規化
-5. 20エポック、20×20=400ニューロンのSOMを訓練
-6. 各ニューロンに対応する期待値（平均PnL）とリスク（標準偏差）を計算
-7. 重み、期待値、リスク、正規化パラメータを4つのCSVに保存
-8. C++側で自動的にmodelsフォルダから読み込み
+- ボラ推定窓と相場の実勢がズレている
+- TP係数が高すぎる可能性
+- 期待値閾値が厳しすぎて、動かない局面だけ残っている可能性
 
-## トレード統計
+### 9.3 学習が不安定
 
-プログラム実行中、以下の統計が画面にリアルタイム表示されます：
+- validation_reportで `warn_gap=1` が多いノードを確認
+- 特徴量の分布変化（regime shift）を疑う
 
-```
-========== WALLET STATS ==========
- Total PnL: +2.345%
- Win/Loss: 12/5
-==================================
-```
+### 9.4 `train_som.py` が実行できない
 
-全取引結果は `data/all_trades_history.csv` に記録され、Pythonで後分析可能です。
+- `.venv\Scripts\python.exe` が存在するか確認してください
+- `requirements-train.txt` が入っているか確認してください
+- `main.cpp` は `.venv` の Python で `train_som.py` を実行します
 
-## トラブルシューティング
+## 10. 免責
 
-### モデルがロードされない
-→ `models/` フォルダに `*_map_weights.csv` などファイルが存在するか確認
-→ 初回実行時は `train_som.py` を手動実行: `.venv\Scripts\python.exe train_som.py ETHUSDT`
-
-### 何も取引されない
-→ コンソール出力のフィルタリング理由を確認（期待値、板厚み、ボラティリティ）
-→ `data/*_market_data.csv` にデータが蓄積されているか確認
-→ 市場データが各銘柄で最小300行以上ないと学習が進まない
-
-### 仮想取引が偏っている
-→ 期待値の閾値が高すぎる可能性：30分以上連続実行してSOMを何度か再学習させる
-→ データが不足している可能性：数時間連続実行してサンプル数を増やす
-
-## パフォーマンス最適化
-
-- **学習率の調整**: `train_som.py` の `learning_rate` 初期値を変更
-- **エポック数**: より時間をかけたい場合は `EPOCHS` を増加（デフォルト20）
-- **グリッドサイズ**: より細かいマッピングが必要な場合は `SOM_WIDTH/HEIGHT` を増加
-- **期待値閾値**: `ExecuteTrade.cpp` の `dynamic_threshold` を調整してエントリー回数を制御
-
-## ライセンス
-
-このプロジェクトは個人の学習・研究目的で作成されました。
+このプロジェクトは研究・学習目的の仮想売買システムです。実運用前に必ず追加検証を実施してください。
 

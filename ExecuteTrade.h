@@ -23,7 +23,8 @@ struct TradeData {
     std::string side;
     double entry_price;
     double lot_size;
-    double dynamic_sl;
+    double tp_rate;
+    double sl_rate;
     double entry_imbalance;
     double entry_diff;
     double entry_volume;

@@ -1,12 +1,31 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
+DATA_DIR = './data/current'
+
+
+def load_all_history(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path, header=None)
+    if df.empty:
+        return df
+
+    if df.shape[1] >= 10:
+        df = df.iloc[:, :10].copy()
+        df.columns = ["ts", "symbol", "side", "entry", "exit", "gross_pnl", "net_pnl", "total_net_pnl", "reason", "hold_sec"]
+    elif df.shape[1] >= 4:
+        df = df.iloc[:, :4].copy()
+        df.columns = ["ts", "symbol", "pnl", "total_pnl"]
+    else:
+        raise ValueError("Unsupported all_trades_history.csv format")
+
+    return df
+
 # データの読み込み
 try:
-    all_csv = pd.read_csv('./data/all_trades_history.csv', header=None)
+    all_csv = load_all_history(f'{DATA_DIR}/all_trades_history.csv')
     # 銘柄別データから価格を取得（BTCの価格推移用）
     # C++側の save_market_data_to_csv で保存しているファイルを使います
-    btc_market_csv = pd.read_csv('./data/BTCUSDT_market_data.csv')
+    btc_market_csv = pd.read_csv(f'{DATA_DIR}/BTCUSDT_market_data.csv')
 except FileNotFoundError as e:
     print(f"ファイルが見つかりません: {e}")
     exit()
@@ -14,9 +33,12 @@ except FileNotFoundError as e:
 fig, ax1 = plt.subplots(figsize=(12, 6))
 
 # --- 左軸: 合計損益 [%] ---
-all_time = all_csv[0]
-all_pnl = all_csv[3]
-time_rel = all_time - all_time[0] # 開始からの経過秒数
+all_time = all_csv["ts"]
+if "total_net_pnl" in all_csv.columns:
+    all_pnl = all_csv["total_net_pnl"]
+else:
+    all_pnl = all_csv["total_pnl"]
+time_rel = all_time - all_time.iloc[0] # 開始からの経過秒数
 
 ax1.plot(time_rel, all_pnl, label='Total PnL [%]', color='black', linewidth=2)
 ax1.set_xlabel('Time [s]')
